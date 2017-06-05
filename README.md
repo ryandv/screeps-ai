@@ -12,12 +12,14 @@ nvm use
 ```
 
 Install project dependencies
-``
+
+```
 npm install
 ./node_modules/.bin/bower update --force-latest
 ```
 
 Build project:
+
 ```
 npm run build
 ```
