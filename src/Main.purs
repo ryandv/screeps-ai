@@ -44,7 +44,11 @@ doCreepActions creep = do
 doCollectEnergy :: Creep -> Source -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) Unit
 doCollectEnergy creep source = do
   moveToSourceResult <- (Creep.moveTo creep (TargetObj source))
+
   when (moveToSourceResult /= ok) $ doLogReturnCode moveToSourceResult
+  when (moveToSourceResult == ok) $ do
+    harvestSourceResult <- Creep.harvestSource creep source
+    when (harvestSourceResult /= ok) $ doLogReturnCode harvestSourceResult
 
 doSpawnActions :: Spawn -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
 doSpawnActions spawn = do
