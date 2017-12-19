@@ -45,10 +45,10 @@ doCollectEnergy :: Creep -> Source -> forall e. Eff (cmd :: CMD, console :: CONS
 doCollectEnergy creep source = do
   moveToSourceResult <- (Creep.moveTo creep (TargetObj source))
 
-  when (moveToSourceResult /= ok) $ doLogReturnCode moveToSourceResult
+  when (moveToSourceResult /= ok) $ doLogReturnCode "MOVE_CREEP_TO_SOURCE" moveToSourceResult
   when (moveToSourceResult == ok) $ do
     harvestSourceResult <- Creep.harvestSource creep source
-    when (harvestSourceResult /= ok) $ doLogReturnCode harvestSourceResult
+    when (harvestSourceResult /= ok) $ doLogReturnCode "HARVEST_SOURCE" harvestSourceResult
 
 doSpawnActions :: Spawn -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
 doSpawnActions spawn = do
@@ -58,10 +58,10 @@ doSpawnActions spawn = do
 doCreateCreep :: Spawn -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
 doCreateCreep spawn = do
   createCreepResult <- Spawn.createCreep spawn energyParts
-  either doLogReturnCode (const $ pure unit) createCreepResult
+  either (doLogReturnCode "CREATE_CREEP") (const $ pure unit) createCreepResult
 
-doLogReturnCode :: ReturnCode -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
-doLogReturnCode returnCode = log $ "Failed to create creep: " <> show returnCode
+doLogReturnCode :: String -> ReturnCode -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
+doLogReturnCode actionName returnCode = log $ "[FAILED " <> actionName <> "]:" <> show returnCode
 
 doLogSpawnEnergy :: Spawn -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
 doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> show (Spawn.energy spawn)
