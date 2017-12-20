@@ -9,7 +9,8 @@
   "dependencies": {
     "purescript-console": "^1.0.0",
     "purescript-prelude": "^1.0.1",
-    "purescript-screeps": "^0.1.4"
+    "purescript-screeps": "^0.1.4",
+    "purescript-transformers": "^1.0.0"
   },
   "devDependencies": {
     "purescript-psci-support": "^1.0.0"
