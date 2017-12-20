@@ -25,6 +25,15 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.Spawn as Spawn
 
+data CreepState = Idle | Harvesting | Full | Transferring | Error
+
+instance encodeCreepState :: EncodeJson CreepState where
+  encodeJson Idle = fromString "Idle"
+  encodeJson Harvesting = fromString "Harvesting"
+  encodeJson Full = fromString "Full"
+  encodeJson Transferring = fromString "Transferring"
+  encodeJson Error = fromString "Error"
+
 main :: forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) Unit
 main = do
   game <- Game.getGameGlobal
@@ -33,23 +42,23 @@ main = do
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
   maybe (log "No spawn detected") doSpawnActions spawn
-  assignments <- traverse doCreepActions creeps
+  creepStates <- traverse doCreepActions creeps
 
   mem <- Memory.getMemoryGlobal
-  Memory.set mem "assignments" (encodeJson assignments)
+  Memory.set mem "creepStates" (encodeJson creepStates)
 
   pure unit
 
-doCreepActions :: Creep -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) (Maybe String)
+doCreepActions :: Creep -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) CreepState
 doCreepActions creep = do
   let room = RoomObject.room creep
   let sources = Room.find room find_sources
 
   let source = head sources
 
-  maybe (log "No more sources" >>= (const $ pure Nothing)) (doCollectEnergy creep) source
+  maybe (log "No more sources" >>= (const $ pure Idle)) (doCollectEnergy creep) source
 
-doCollectEnergy :: Creep -> Source -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) (Maybe String)
+doCollectEnergy :: Creep -> Source -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e) CreepState
 doCollectEnergy creep source = do
   moveToSourceResult <- (Creep.moveTo creep (TargetObj source))
 
@@ -58,7 +67,7 @@ doCollectEnergy creep source = do
     harvestSourceResult <- Creep.harvestSource creep source
     when (harvestSourceResult /= ok) $ doLogReturnCode "HARVEST_SOURCE" harvestSourceResult
 
-  pure <<< Just $ FFI.unsafeField "id" source
+  pure Harvesting
 
 doSpawnActions :: Spawn -> forall e. Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME | e) Unit
 doSpawnActions spawn = do
