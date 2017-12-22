@@ -3,7 +3,10 @@ module Main where
 import Prelude
 
 import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Class
 import Control.Monad.Eff.Console (CONSOLE, log)
+import Control.Monad.Except
+import Control.Monad.Except.Trans
 
 import Data.Argonaut.Core
 import Data.Argonaut.Encode
@@ -27,7 +30,11 @@ import Screeps.Spawn as Spawn
 
 data CreepState = Idle | Harvesting | Full | Transferring | Error
 
+data CommandError = AllErrors
+
 type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e)
+
+type BaseScreepsEffects = (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY)
 
 instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Idle = fromString "Idle"
@@ -36,7 +43,7 @@ instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Transferring = fromString "Transferring"
   encodeJson Error = fromString "Error"
 
-main :: forall e. (EffScreepsCommand e) Unit
+main :: Eff BaseScreepsEffects Unit
 main = do
   game <- Game.getGameGlobal
 
@@ -51,26 +58,6 @@ main = do
 
   pure unit
 
-doCreepActions :: Creep -> forall e. (EffScreepsCommand e) CreepState
-doCreepActions creep = do
-  let room = RoomObject.room creep
-  let sources = Room.find room find_sources
-
-  let source = head sources
-
-  maybe (log "No more sources" >>= (const $ pure Idle)) (doCollectEnergy creep) source
-
-doCollectEnergy :: Creep -> Source -> forall e. (EffScreepsCommand e) CreepState
-doCollectEnergy creep source = do
-  moveToSourceResult <- (Creep.moveTo creep (TargetObj source))
-
-  when (moveToSourceResult /= ok) $ doLogReturnCode "MOVE_CREEP_TO_SOURCE" moveToSourceResult
-  when (moveToSourceResult == ok) $ do
-    harvestSourceResult <- Creep.harvestSource creep source
-    when (harvestSourceResult /= ok) $ doLogReturnCode "HARVEST_SOURCE" harvestSourceResult
-
-  pure Harvesting
-
 doSpawnActions :: Spawn -> forall e. (EffScreepsCommand e) Unit
 doSpawnActions spawn = do
   doCreateCreep spawn
@@ -81,11 +68,36 @@ doCreateCreep spawn = do
   createCreepResult <- Spawn.createCreep spawn energyParts
   either (doLogReturnCode "CREATE_CREEP") (const $ pure unit) createCreepResult
 
-doLogReturnCode :: String -> ReturnCode -> forall e. (EffScreepsCommand e) Unit
-doLogReturnCode actionName returnCode = log $ "[FAILED " <> actionName <> "]:" <> show returnCode
-
 doLogSpawnEnergy :: Spawn -> forall e. (EffScreepsCommand e) Unit
 doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> show (Spawn.energy spawn)
+
+doCreepActions :: Creep -> Eff BaseScreepsEffects CreepState
+doCreepActions creep = do
+  let room = RoomObject.room creep
+  let sources = Room.find room find_sources
+
+  let source = head sources
+
+  maybe (log "No more sources" >>= (const $ pure Idle)) (doCollectEnergy creep) source
+
+doCollectEnergy :: Creep -> Source -> Eff BaseScreepsEffects CreepState
+doCollectEnergy creep source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ do
+  doTryCommand "MOVE_CREEP_TO_SOURCE" $ Creep.moveTo creep (TargetObj source)
+  doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source)
+
+doTryCommand :: String -> Eff BaseScreepsEffects ReturnCode -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
+doTryCommand commandName command = do
+ result <- (liftEff command)
+ when (result == ok) $ (pure unit)
+ when (result /= ok) $ doThrowError commandName result
+
+doThrowError :: String -> ReturnCode -> forall e. ExceptT CommandError (Eff BaseScreepsEffects) Unit
+doThrowError commandName result = do
+  liftEff $ (doLogReturnCode commandName result :: (Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY) Unit))
+  throwError AllErrors
+
+doLogReturnCode :: String -> ReturnCode -> forall e. (EffScreepsCommand e) Unit
+doLogReturnCode actionName returnCode = log $ "[FAILED " <> actionName <> "]:" <> show returnCode
 
 energyParts :: Array BodyPartType
 energyParts = [part_move, part_work, part_carry]
