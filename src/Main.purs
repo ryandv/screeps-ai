@@ -69,7 +69,7 @@ main = do
   let creeps = Game.creeps game
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
-  maybe (log "No spawn detected") doSpawnActions spawn
+  maybe (log "No spawn detected") (doSpawnActions (M.size creeps)) spawn
   creepStates <- (maybe (pure M.empty) (\spawn -> traverse (doCreepAction spawn) creeps) spawn)
 
   mem <- Memory.getMemoryGlobal
@@ -77,10 +77,11 @@ main = do
 
   pure unit
 
-doSpawnActions :: Spawn -> forall e. (EffScreepsCommand e) Unit
-doSpawnActions spawn = do
-  doCreateCreep spawn
-  doLogSpawnEnergy spawn
+doSpawnActions :: Number -> Spawn -> forall e. (EffScreepsCommand e) Unit
+doSpawnActions numberOfCreeps spawn | numberOfCreeps > 10.0 = pure unit
+                                    | otherwise = do
+                                        doCreateCreep spawn
+                                        doLogSpawnEnergy spawn
 
 doCreateCreep :: Spawn -> forall e. (EffScreepsCommand e) Unit
 doCreateCreep spawn = do
