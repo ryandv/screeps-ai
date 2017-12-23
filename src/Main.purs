@@ -30,12 +30,11 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.Spawn as Spawn
 
-data CreepState = Idle | Harvesting | Full | Transferring | Error
+data CreepState = Idle | Harvesting | Transferring | Error
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
   show Harvesting = "Harvesting"
-  show Full = "Full"
   show Transferring = "Transferring"
   show Error = "Error"
 
@@ -50,14 +49,12 @@ type BaseScreepsEffects = (cmd :: CMD, console :: CONSOLE, tick :: TICK, time ::
 instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Idle = fromString "Idle"
   encodeJson Harvesting = fromString "Harvesting"
-  encodeJson Full = fromString "Full"
   encodeJson Transferring = fromString "Transferring"
   encodeJson Error = fromString "Error"
 
 instance decodeCreepState :: DecodeJson CreepState where
   decodeJson j | toString j == Just "Idle" = Right Idle
                | toString j == Just "Harvesting" = Right Harvesting
-               | toString j == Just "Full" = Right Full
                | toString j == Just "Transferring" = Right Transferring
                | toString j == Just "Error" = Right Error
                | otherwise = Left "Failed to parse creepState"
@@ -70,7 +67,7 @@ main = do
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
   maybe (log "No spawn detected") doSpawnActions spawn
-  creepStates <- traverse doCreepAction creeps
+  creepStates <- (maybe (pure M.empty) (\spawn -> traverse (doCreepAction spawn) creeps) spawn)
 
   mem <- Memory.getMemoryGlobal
   Memory.set mem "creepStates" (encodeJson creepStates)
@@ -90,8 +87,8 @@ doCreateCreep spawn = do
 doLogSpawnEnergy :: Spawn -> forall e. (EffScreepsCommand e) Unit
 doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> show (Spawn.energy spawn)
 
-doCreepAction :: Creep -> Eff BaseScreepsEffects CreepState
-doCreepAction creep = do
+doCreepAction :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
+doCreepAction spawn creep = do
   mem <- Memory.getMemoryGlobal
   let creepName = Creep.name creep
 
@@ -101,18 +98,23 @@ doCreepAction creep = do
 
   log $ "[" <> creepName <> " STATE]: " <> show creepState
 
-  doDecideCreepAction creepState creep
+  doDecideCreepAction spawn creepState creep
 
-doDecideCreepAction :: CreepState -> Creep -> Eff BaseScreepsEffects CreepState
-doDecideCreepAction state creep | state == Error        = pure Idle
-                                | state == Idle         = doCollectEnergy creep
-                                | state == Harvesting   = doDecideFromHarvesting
-                                | state == Full         = doTransferEnergy
-                                | state == Transferring = pure Idle
-                                | otherwise             = pure Idle
+doDecideCreepAction :: Spawn -> CreepState -> Creep -> Eff BaseScreepsEffects CreepState
+doDecideCreepAction spawn state creep | state == Error        = pure Idle
+                                      | state == Idle         = doCollectEnergy creep
+                                      | state == Harvesting   = doDecideFromHarvesting creep
+                                      | state == Transferring = doTransferEnergy spawn creep
+                                      | otherwise             = pure Idle
 
-doDecideFromHarvesting = pure Harvesting
-doTransferEnergy = pure Idle
+doDecideFromHarvesting :: Creep -> Eff BaseScreepsEffects CreepState
+doDecideFromHarvesting creep | (Creep.totalAmtCarrying creep) < (Creep.carryCapacity creep) = doCollectEnergy creep
+                             | otherwise = pure Transferring
+
+doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
+doTransferEnergy spawn creep = (either (const $ pure Error) (const $ pure Transferring)) =<< (runExceptT $ do
+  doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
+  doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy)
 
 doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
 doCollectEnergy creep = do
