@@ -51,7 +51,7 @@ main = do
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
   maybe (log "No spawn detected") doSpawnActions spawn
-  creepStates <- traverse doCreepActions creeps
+  creepStates <- traverse doCreepAction creeps
 
   mem <- Memory.getMemoryGlobal
   Memory.set mem "creepStates" (encodeJson creepStates)
@@ -71,8 +71,8 @@ doCreateCreep spawn = do
 doLogSpawnEnergy :: Spawn -> forall e. (EffScreepsCommand e) Unit
 doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> show (Spawn.energy spawn)
 
-doCreepActions :: Creep -> Eff BaseScreepsEffects CreepState
-doCreepActions creep = do
+doCreepAction :: Creep -> Eff BaseScreepsEffects CreepState
+doCreepAction creep = do
   let room = RoomObject.room creep
   let sources = Room.find room find_sources
 
@@ -81,9 +81,12 @@ doCreepActions creep = do
   maybe (log "No more sources" >>= (const $ pure Idle)) (doCollectEnergy creep) source
 
 doCollectEnergy :: Creep -> Source -> Eff BaseScreepsEffects CreepState
-doCollectEnergy creep source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ do
+doCollectEnergy creep source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ doMoveAndHarvest creep source)
+
+doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
+doMoveAndHarvest creep source = do
   doTryCommand "MOVE_CREEP_TO_SOURCE" $ Creep.moveTo creep (TargetObj source)
-  doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source)
+  doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source
 
 doTryCommand :: String -> Eff BaseScreepsEffects ReturnCode -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doTryCommand commandName command = do
