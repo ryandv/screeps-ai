@@ -73,15 +73,19 @@ doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> sh
 
 doCreepAction :: Creep -> Eff BaseScreepsEffects CreepState
 doCreepAction creep = do
+  doCollectEnergy creep
+
+doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
+doCollectEnergy creep = do
   let room = RoomObject.room creep
   let sources = Room.find room find_sources
 
   let source = head sources
 
-  maybe (log "No more sources" >>= (const $ pure Idle)) (doCollectEnergy creep) source
+  maybe (log "No more sources" >>= (const $ pure Idle)) doHarvestEnergy source where
 
-doCollectEnergy :: Creep -> Source -> Eff BaseScreepsEffects CreepState
-doCollectEnergy creep source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ doMoveAndHarvest creep source)
+    doHarvestEnergy :: Source -> Eff BaseScreepsEffects CreepState
+    doHarvestEnergy source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ doMoveAndHarvest creep source)
 
 doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doMoveAndHarvest creep source = do
