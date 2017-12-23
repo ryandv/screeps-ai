@@ -112,9 +112,12 @@ doDecideFromHarvesting creep | (Creep.totalAmtCarrying creep) < (Creep.carryCapa
                              | otherwise = pure Transferring
 
 doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
-doTransferEnergy spawn creep = (either (const $ pure Error) (const $ pure Transferring)) =<< (runExceptT $ do
+doTransferEnergy spawn creep = doRunCommands Transferring $ do
   doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
-  doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy)
+  doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
+
+doRunCommands :: CreepState -> ExceptT CommandError (Eff BaseScreepsEffects) Unit -> Eff BaseScreepsEffects CreepState
+doRunCommands state command = either (const $ pure Error) (const $ pure state) =<< runExceptT command
 
 doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
 doCollectEnergy creep = do
@@ -126,7 +129,7 @@ doCollectEnergy creep = do
   maybe (log "No more sources" >>= (const $ pure Idle)) doHarvestEnergy source where
 
     doHarvestEnergy :: Source -> Eff BaseScreepsEffects CreepState
-    doHarvestEnergy source = (either (const $ pure Error) (const $ pure Harvesting)) =<< (runExceptT $ doMoveAndHarvest creep source)
+    doHarvestEnergy source = doRunCommands Harvesting $ doMoveAndHarvest creep source
 
 doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doMoveAndHarvest creep source = do
