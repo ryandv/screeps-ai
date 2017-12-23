@@ -39,6 +39,8 @@ instance showCreepState :: Show CreepState where
   show Transferring = "Transferring"
   show Error = "Error"
 
+derive instance eqCreepState :: Eq CreepState
+
 data CommandError = AllErrors
 
 type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e)
@@ -102,8 +104,15 @@ doCreepAction creep = do
   doDecideCreepAction creepState creep
 
 doDecideCreepAction :: CreepState -> Creep -> Eff BaseScreepsEffects CreepState
-doDecideCreepAction state creep = do
-  doCollectEnergy creep
+doDecideCreepAction state creep | state == Error        = pure Idle
+                                | state == Idle         = doCollectEnergy creep
+                                | state == Harvesting   = doDecideFromHarvesting
+                                | state == Full         = doTransferEnergy
+                                | state == Transferring = pure Idle
+                                | otherwise             = pure Idle
+
+doDecideFromHarvesting = pure Harvesting
+doTransferEnergy = pure Idle
 
 doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
 doCollectEnergy creep = do
