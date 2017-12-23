@@ -22,6 +22,7 @@ import Data.Traversable
 
 import Screeps
 import Screeps.Constants
+import Screeps.Controller as Controller
 import Screeps.Creep as Creep
 import Screeps.FFI as FFI
 import Screeps.Game as Game
@@ -116,8 +117,7 @@ doDecideFromHarvesting creep | (Creep.totalAmtCarrying creep) < (Creep.carryCapa
 doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
 doTransferEnergy spawn creep = doRunCommands $
                                  (flip catchError) handleErrors $ do
-                                   doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
-                                   doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
+                                   doSelectRecipient spawn creep
                                    pure Idle where
 
     handleErrors :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
@@ -125,6 +125,19 @@ doTransferEnergy spawn creep = doRunCommands $
                    | e == OutOfEnergyError = pure Idle
                    | e == OutOfResourcesError = pure Idle
                    | otherwise = throwError e
+
+    doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
+    doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
+                                        Just controller -> if Controller.ticksToDowngrade controller < 15000
+                                                              then do
+                                                                doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
+                                                                doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
+                                                              else do
+                                                                doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
+                                                                doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
+                                        Nothing -> do
+                                          doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
+                                          doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
 
 doRunCommands :: ExceptT CommandError (Eff BaseScreepsEffects) CreepState -> Eff BaseScreepsEffects CreepState
 doRunCommands command = either (const $ pure Error) pure =<< runExceptT command
