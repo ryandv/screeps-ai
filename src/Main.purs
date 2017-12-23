@@ -9,11 +9,13 @@ import Control.Monad.Except
 import Control.Monad.Except.Trans
 
 import Data.Argonaut.Core
+import Data.Argonaut.Decode
 import Data.Argonaut.Encode
 import Data.Array
 import Data.Either
 import Data.Maybe
 import Data.Semigroup
+import Data.Show
 import Data.StrMap as M
 import Data.Tuple
 import Data.Traversable
@@ -30,6 +32,13 @@ import Screeps.Spawn as Spawn
 
 data CreepState = Idle | Harvesting | Full | Transferring | Error
 
+instance showCreepState :: Show CreepState where
+  show Idle = "Idle"
+  show Harvesting = "Harvesting"
+  show Full = "Full"
+  show Transferring = "Transferring"
+  show Error = "Error"
+
 data CommandError = AllErrors
 
 type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e)
@@ -42,6 +51,14 @@ instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Full = fromString "Full"
   encodeJson Transferring = fromString "Transferring"
   encodeJson Error = fromString "Error"
+
+instance decodeCreepState :: DecodeJson CreepState where
+  decodeJson j | toString j == Just "Idle" = Right Idle
+               | toString j == Just "Harvesting" = Right Harvesting
+               | toString j == Just "Full" = Right Full
+               | toString j == Just "Transferring" = Right Transferring
+               | toString j == Just "Error" = Right Error
+               | otherwise = Left "Failed to parse creepState"
 
 main :: Eff BaseScreepsEffects Unit
 main = do
@@ -73,6 +90,19 @@ doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> sh
 
 doCreepAction :: Creep -> Eff BaseScreepsEffects CreepState
 doCreepAction creep = do
+  mem <- Memory.getMemoryGlobal
+  let creepName = Creep.name creep
+
+  eitherCreepStates <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
+  let creepStates = either (const M.empty) id eitherCreepStates
+  let creepState = maybe Idle id $ M.lookup creepName creepStates
+
+  log $ "[" <> creepName <> " STATE]: " <> show creepState
+
+  doDecideCreepAction creepState creep
+
+doDecideCreepAction :: CreepState -> Creep -> Eff BaseScreepsEffects CreepState
+doDecideCreepAction state creep = do
   doCollectEnergy creep
 
 doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
