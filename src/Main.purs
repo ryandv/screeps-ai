@@ -40,7 +40,9 @@ instance showCreepState :: Show CreepState where
 
 derive instance eqCreepState :: Eq CreepState
 
-data CommandError = AllErrors
+data CommandError = UndistinguishedErrors | OutOfRangeError | OutOfEnergyError | OutOfResourcesError
+
+derive instance eqCommandError :: Eq CommandError
 
 type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e)
 
@@ -112,12 +114,20 @@ doDecideFromHarvesting creep | (Creep.totalAmtCarrying creep) < (Creep.carryCapa
                              | otherwise = pure Transferring
 
 doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
-doTransferEnergy spawn creep = doRunCommands Transferring $ do
-  doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
-  doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
+doTransferEnergy spawn creep = doRunCommands $
+                                 (flip catchError) handleErrors $ do
+                                   doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
+                                   doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
+                                   pure Idle where
 
-doRunCommands :: CreepState -> ExceptT CommandError (Eff BaseScreepsEffects) Unit -> Eff BaseScreepsEffects CreepState
-doRunCommands state command = either (const $ pure Error) (const $ pure state) =<< runExceptT command
+    handleErrors :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
+    handleErrors e | e == OutOfRangeError = pure Transferring
+                   | e == OutOfEnergyError = pure Idle
+                   | e == OutOfResourcesError = pure Idle
+                   | otherwise = throwError e
+
+doRunCommands :: ExceptT CommandError (Eff BaseScreepsEffects) CreepState -> Eff BaseScreepsEffects CreepState
+doRunCommands command = either (const $ pure Error) pure =<< runExceptT command
 
 doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
 doCollectEnergy creep = do
@@ -129,23 +139,32 @@ doCollectEnergy creep = do
   maybe (log "No more sources" >>= (const $ pure Idle)) doHarvestEnergy source where
 
     doHarvestEnergy :: Source -> Eff BaseScreepsEffects CreepState
-    doHarvestEnergy source = doRunCommands Harvesting $ doMoveAndHarvest creep source
+    doHarvestEnergy source = doRunCommands $ (flip catchError) handleOutOfRange $ doMoveAndHarvest creep source
 
-doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
+    handleOutOfRange :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
+    handleOutOfRange e | e == OutOfRangeError = pure Harvesting
+                       | otherwise = throwError e
+
+doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
 doMoveAndHarvest creep source = do
   doTryCommand "MOVE_CREEP_TO_SOURCE" $ Creep.moveTo creep (TargetObj source)
   doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source
+  pure Harvesting
 
 doTryCommand :: String -> Eff BaseScreepsEffects ReturnCode -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doTryCommand commandName command = do
  result <- (liftEff command)
  when (result == ok) $ (pure unit)
- when (result /= ok) $ doThrowError commandName result
+ when (result /= ok) $ case result of
+                            err_not_in_range -> doThrowError commandName result OutOfRangeError
+                            err_not_enough_energy -> doThrowError commandName result OutOfEnergyError
+                            err_not_enough_resources -> doThrowError commandName result OutOfResourcesError
+                            _ -> doThrowError commandName result UndistinguishedErrors
 
-doThrowError :: String -> ReturnCode -> forall e. ExceptT CommandError (Eff BaseScreepsEffects) Unit
-doThrowError commandName result = do
+doThrowError :: String -> ReturnCode -> CommandError -> forall e. ExceptT CommandError (Eff BaseScreepsEffects) Unit
+doThrowError commandName result error = do
   liftEff $ (doLogReturnCode commandName result :: (Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY) Unit))
-  throwError AllErrors
+  throwError error
 
 doLogReturnCode :: String -> ReturnCode -> forall e. (EffScreepsCommand e) Unit
 doLogReturnCode actionName returnCode = log $ "[FAILED " <> actionName <> "]:" <> show returnCode
