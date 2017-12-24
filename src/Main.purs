@@ -177,8 +177,14 @@ writeInstructionsToQueue instructions = do
   Memory.set mem "instructionQueue" (encodeJson instructions)
 
 generateInstructions :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
-generateInstructions observations state = MyIdentity $ Identity $ Tuple (instructionsAndNextState.value) (instructionsAndNextState.accum) where
-  instructionsAndNextState = mapAccumL (\state observation -> { accum: state, value: SpawnCreep }) state observations
+generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat $ instructionsAndNextState.value) (instructionsAndNextState.accum) where
+
+  instructionsAndNextState :: Accum AiState (Array (Array Instruction))
+  instructionsAndNextState = mapAccumL respondToObservation state observations
+
+  respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
+  respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
+  respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
 
 main :: Eff BaseScreepsEffects Unit
 main = do
