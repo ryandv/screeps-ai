@@ -178,27 +178,13 @@ main = do
   let creeps = Game.creeps game
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
-  maybe (log "No spawn detected") (doSpawnActions (M.size creeps)) spawn
+  mainLoop
   creepStates <- (maybe (pure M.empty) (\spawn -> traverse (doCreepAction spawn) creeps) spawn)
 
   mem <- Memory.getMemoryGlobal
   Memory.set mem "creepStates" (encodeJson creepStates)
 
   pure unit
-
-doSpawnActions :: Number -> Spawn -> forall e. (EffScreepsCommand e) Unit
-doSpawnActions numberOfCreeps spawn | numberOfCreeps > 10.0 = pure unit
-                                    | otherwise = do
-                                        doCreateCreep spawn
-                                        doLogSpawnEnergy spawn
-
-doCreateCreep :: Spawn -> forall e. (EffScreepsCommand e) Unit
-doCreateCreep spawn = do
-  createCreepResult <- Spawn.createCreep spawn energyParts
-  either (doLogReturnCode "CREATE_CREEP") (const $ pure unit) createCreepResult
-
-doLogSpawnEnergy :: Spawn -> forall e. (EffScreepsCommand e) Unit
-doLogSpawnEnergy spawn = log $ "Spawn " <> show (Spawn.name spawn) <> ": " <> show (Spawn.energy spawn)
 
 doCreepAction :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
 doCreepAction spawn creep = do
