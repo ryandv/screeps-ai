@@ -42,11 +42,15 @@ data Point = Point Int Int
 data CreepState = Idle | Harvesting | Transferring | Error
 
 data AiState = AiState
+  { creepStates :: (M.StrMap CreepState)
+  }
 
 instance encodeAiState :: EncodeJson AiState where
-  encodeJson AiState = fromString "AiState"
+  encodeJson (AiState { creepStates: creepStates }) = fromObject $ M.fromFoldable
+    [ Tuple "creepStates" $ encodeJson creepStates
+    ]
 
-data Observation = UnderCreepCap | CannotSpawnCreep
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point
 data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
@@ -54,13 +58,28 @@ data Reports = Reports
   , sourceLocations :: Array Point
   }
 
-data Instruction = SpawnCreep
+data Instruction = SpawnCreep | DoLegacyHarvest String
 
 instance encodeInstruction :: EncodeJson Instruction where
-  encodeJson SpawnCreep = fromString "SpawnCreep"
+  encodeJson SpawnCreep = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "SpawnCreep"
+    , Tuple "payload" $ fromObject $ M.fromFoldable []
+    ]
+  encodeJson (DoLegacyHarvest creepName) = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "DoLegacyHarvest"
+    , Tuple "payload" $ fromObject $ M.fromFoldable
+      [ Tuple "creepName" $ fromString creepName ]
+    ]
 
 instance decodeInstruction :: DecodeJson Instruction where
-  decodeJson instruction = Right SpawnCreep
+  decodeJson (instruction :: Json) = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
+                                         case instructionType of
+                                              (Right "SpawnCreep") -> Right SpawnCreep
+                                              (Right "DoLegacyHarvest") -> do
+                                                payload <- getField (maybe (M.fromFoldable []) id (toObject instruction)) "payload"
+                                                getField payload "creepName"
+                                              (Right _) -> Right SpawnCreep
+                                              (Left e) -> Left e
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
@@ -142,10 +161,11 @@ analyzeReports (Reports
   { numberOfCreeps: numberOfCreeps
   , creepCapacities: creepCapacities
   , ticksToDowngrade: ticksToDowngrade
+  , sourceLocations: sourceLocations
   }) = catMaybes
     [
       if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
-    ]
+    ] <> map SourceLocated sourceLocations
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
 getInstructionQueue = do
@@ -162,9 +182,23 @@ executeInstruction SpawnCreep = do
   maybe (pure $ Just CannotSpawnCreep) (\spawn -> do
         createCreepResult <- Spawn.createCreep spawn energyParts
         pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
+executeInstruction (DoLegacyHarvest creepName) = do
+  pure Nothing
+  --game <- Game.getGameGlobal
+
+  --let creeps = Game.creeps game
+  --let spawn = M.lookup "Spawn1" $ Game.spawns game
+
+  --maybe (pure Nothing) (\spawn -> do
+  --      maybe (pure Nothing) (\creep -> doCreepAction spawn creep >>= (const $ pure Nothing)) $ M.lookup creepName creeps) spawn
+
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
-getStateFromMemory = pure $ AiState
+getStateFromMemory = do
+  -- HACK UNTIL FULLY MIGRATED
+  mem <- Memory.getMemoryGlobal
+  creepStatesHack <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
+  pure $ either (const $ AiState { creepStates: M.empty }) (\creepStates -> AiState { creepStates: creepStates }) creepStatesHack
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
@@ -185,6 +219,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
   respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
   respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
+  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = { accum: state, value: map (\creepName -> DoLegacyHarvest creepName) (M.keys creepStates) }
 
 main :: Eff BaseScreepsEffects Unit
 main = do
@@ -287,7 +322,6 @@ doTryCommand commandName command = do
 
 doThrowError :: String -> ReturnCode -> CommandError -> forall e. ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doThrowError commandName result error = do
-  liftEff $ (doLogReturnCode commandName result :: (Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY) Unit))
   throwError error
 
 doLogReturnCode :: String -> ReturnCode -> forall e. (EffScreepsCommand e) Unit
