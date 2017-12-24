@@ -36,6 +36,8 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.Spawn as Spawn
 
+data Point = Point Int Int
+
 data CreepState = Idle | Harvesting | Transferring | Error
 
 data AiState = AiState
@@ -102,7 +104,7 @@ mainLoop = do
   instructionResultObservations <- catMaybes <$> traverse executeInstruction instructionQueue
 
   state <- getStateFromMemory
-  let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstruction (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
+  let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
 
   writeStateToMemory $ snd instructionsAndNextState
   writeInstructionsToQueue $ fst instructionsAndNextState
@@ -134,9 +136,10 @@ analyzeReports (Reports
   { numberOfCreeps: numberOfCreeps
   , creepCapacities: creepCapacities
   , ticksToDowngrade: ticksToDowngrade
-  }) = catMaybes [
-    if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
-  ]
+  }) = catMaybes
+    [
+      if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
+    ]
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
 getInstructionQueue = do
@@ -167,8 +170,8 @@ writeInstructionsToQueue instructions = do
   mem <- Memory.getMemoryGlobal
   Memory.set mem "instructionQueue" (encodeJson instructions)
 
-generateInstruction :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
-generateInstruction observations state = MyIdentity $ Identity $ Tuple (instructionsAndNextState.value) (instructionsAndNextState.accum) where
+generateInstructions :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
+generateInstructions observations state = MyIdentity $ Identity $ Tuple (instructionsAndNextState.value) (instructionsAndNextState.accum) where
   instructionsAndNextState = mapAccumL (\state observation -> { accum: state, value: SpawnCreep }) state observations
 
 main :: Eff BaseScreepsEffects Unit
