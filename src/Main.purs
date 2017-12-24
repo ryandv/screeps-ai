@@ -7,13 +7,17 @@ import Control.Monad.Eff.Class
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Except
 import Control.Monad.Except.Trans
+import Control.Monad.State
+import Control.Monad.State.Trans
 
 import Data.Argonaut.Core
 import Data.Argonaut.Decode
 import Data.Argonaut.Encode
 import Data.Array
 import Data.Either
+import Data.Identity
 import Data.Maybe
+import Data.Newtype (class Newtype, unwrap)
 import Data.Semigroup
 import Data.Show
 import Data.StrMap as M
@@ -31,7 +35,14 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.Spawn as Spawn
 
+import Unsafe.Coerce as Coerce
+
 data CreepState = Idle | Harvesting | Transferring | Error
+
+data AiState = AiState
+data Event = Event
+data Reports = Reports
+data Instruction = Instruction
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
@@ -49,6 +60,12 @@ type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, ti
 
 type BaseScreepsEffects = (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY)
 
+newtype MyIdentity a = MyIdentity (Identity a)
+
+instance newtypeIdentity :: Newtype (MyIdentity a) a where
+  wrap a = (MyIdentity (Identity a))
+  unwrap (MyIdentity (Identity a)) = a
+
 instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Idle = fromString "Idle"
   encodeJson Harvesting = fromString "Harvesting"
@@ -61,6 +78,46 @@ instance decodeCreepState :: DecodeJson CreepState where
                | toString j == Just "Transferring" = Right Transferring
                | toString j == Just "Error" = Right Error
                | otherwise = Left "Failed to parse creepState"
+
+mainLoop :: Eff BaseScreepsEffects Unit
+mainLoop = do
+  reports <- generateReports
+  let reportEvents = analyzeReports reports
+
+  instructionQueue <- getInstructionQueue
+  instructionResultEvents <- traverse executeInstruction instructionQueue
+
+  state <- getStateFromMemory
+  let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstruction (reportEvents <> instructionResultEvents))) state) :: Tuple (Array Instruction) AiState
+
+  writeStateToMemory $ snd instructionsAndNextState
+  writeInstructionsToQueue $ fst instructionsAndNextState
+
+  pure unit
+
+generateReports :: Eff BaseScreepsEffects Reports
+generateReports = Coerce.unsafeCoerce unit
+
+analyzeReports :: Reports -> Array Event
+analyzeReports reports = Coerce.unsafeCoerce unit
+
+getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
+getInstructionQueue = Coerce.unsafeCoerce unit
+
+executeInstruction :: Instruction -> Eff BaseScreepsEffects Event
+executeInstruction instruction = Coerce.unsafeCoerce unit
+
+getStateFromMemory :: Eff BaseScreepsEffects AiState
+getStateFromMemory = Coerce.unsafeCoerce unit
+
+writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
+writeStateToMemory = Coerce.unsafeCoerce unit
+
+writeInstructionsToQueue :: (Array Instruction) -> Eff BaseScreepsEffects Unit
+writeInstructionsToQueue = Coerce.unsafeCoerce unit
+
+generateInstruction :: (Array Event) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
+generateInstruction event state = Coerce.unsafeCoerce unit
 
 main :: Eff BaseScreepsEffects Unit
 main = do
@@ -129,7 +186,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 15000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 20000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
