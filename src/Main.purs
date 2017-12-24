@@ -34,6 +34,7 @@ import Screeps.Game as Game
 import Screeps.Memory as Memory
 import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
+import Screeps.RoomPosition as RoomPosition
 import Screeps.Spawn as Spawn
 
 data Point = Point Int Int
@@ -50,6 +51,7 @@ data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
   , ticksToDowngrade :: Int
+  , sourceLocations :: Array Point
   }
 
 data Instruction = SpawnCreep
@@ -120,6 +122,7 @@ generateReports = do
 
   let creeps = Game.creeps game
   let spawn = M.lookup "Spawn1" $ Game.spawns game
+  let sources = maybe [] (\spawn -> Room.find (RoomObject.room spawn) find_sources) spawn
 
   let creepCapacities = map getCreepCapacity creeps
 
@@ -129,6 +132,9 @@ generateReports = do
     , ticksToDowngrade: maybe 0 (\spawn -> case Room.controller $ RoomObject.room spawn of
                                   Just controller -> Controller.ticksToDowngrade controller
                                   Nothing -> 0) spawn
+    , sourceLocations: map (\source ->
+                        let roomPos = (RoomObject.pos source) in
+                            Point (RoomPosition.x roomPos) (RoomPosition.y roomPos)) sources
     }
 
 analyzeReports :: Reports -> Array Observation
