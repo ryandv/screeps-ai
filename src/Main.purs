@@ -16,6 +16,7 @@ import Data.Argonaut.Encode
 import Data.Array
 import Data.Either
 import Data.Identity
+import Data.Int as Int
 import Data.Maybe
 import Data.Newtype (class Newtype, unwrap)
 import Data.Semigroup
@@ -35,14 +36,27 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.Spawn as Spawn
 
-import Unsafe.Coerce as Coerce
-
 data CreepState = Idle | Harvesting | Transferring | Error
 
 data AiState = AiState
-data Event = Event
+
+instance encodeAiState :: EncodeJson AiState where
+  encodeJson AiState = fromString "AiState"
+
+data Observation = UnderCreepCap | CannotSpawnCreep
 data Reports = Reports
-data Instruction = Instruction
+  { numberOfCreeps :: Int
+  , creepCapacities :: M.StrMap (Tuple Int Int)
+  , ticksToDowngrade :: Int
+  }
+
+data Instruction = SpawnCreep
+
+instance encodeInstruction :: EncodeJson Instruction where
+  encodeJson SpawnCreep = fromString "SpawnCreep"
+
+instance decodeInstruction :: DecodeJson Instruction where
+  decodeJson instruction = Right SpawnCreep
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
@@ -82,42 +96,80 @@ instance decodeCreepState :: DecodeJson CreepState where
 mainLoop :: Eff BaseScreepsEffects Unit
 mainLoop = do
   reports <- generateReports
-  let reportEvents = analyzeReports reports
+  let reportObservations = analyzeReports reports
 
   instructionQueue <- getInstructionQueue
-  instructionResultEvents <- traverse executeInstruction instructionQueue
+  instructionResultObservations <- catMaybes <$> traverse executeInstruction instructionQueue
 
   state <- getStateFromMemory
-  let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstruction (reportEvents <> instructionResultEvents))) state) :: Tuple (Array Instruction) AiState
+  let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstruction (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
 
   writeStateToMemory $ snd instructionsAndNextState
   writeInstructionsToQueue $ fst instructionsAndNextState
 
   pure unit
 
-generateReports :: Eff BaseScreepsEffects Reports
-generateReports = Coerce.unsafeCoerce unit
+getCreepCapacity :: Creep -> Tuple Int Int
+getCreepCapacity creep = Tuple (Creep.totalAmtCarrying creep) (Creep.carryCapacity creep)
 
-analyzeReports :: Reports -> Array Event
-analyzeReports reports = Coerce.unsafeCoerce unit
+generateReports :: Eff BaseScreepsEffects Reports
+generateReports = do
+  game <- Game.getGameGlobal
+
+  let creeps = Game.creeps game
+  let spawn = M.lookup "Spawn1" $ Game.spawns game
+
+  let creepCapacities = map getCreepCapacity creeps
+
+  pure $ Reports
+    { numberOfCreeps: maybe 0 id <<< Int.fromNumber $ M.size creeps
+    , creepCapacities: creepCapacities
+    , ticksToDowngrade: maybe 0 (\spawn -> case Room.controller $ RoomObject.room spawn of
+                                  Just controller -> Controller.ticksToDowngrade controller
+                                  Nothing -> 0) spawn
+    }
+
+analyzeReports :: Reports -> Array Observation
+analyzeReports (Reports
+  { numberOfCreeps: numberOfCreeps
+  , creepCapacities: creepCapacities
+  , ticksToDowngrade: ticksToDowngrade
+  }) = catMaybes [
+    if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
+  ]
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
-getInstructionQueue = Coerce.unsafeCoerce unit
+getInstructionQueue = do
+  mem <- Memory.getMemoryGlobal
+  instructionQueue <- (Memory.get mem "instructionQueue") :: forall e. (EffScreepsCommand e) (Either String (Array Instruction))
+  pure $ either (const []) id instructionQueue
 
-executeInstruction :: Instruction -> Eff BaseScreepsEffects Event
-executeInstruction instruction = Coerce.unsafeCoerce unit
+executeInstruction :: Instruction -> Eff BaseScreepsEffects (Maybe Observation)
+executeInstruction SpawnCreep = do
+  game <- Game.getGameGlobal
+
+  let spawn = M.lookup "Spawn1" $ Game.spawns game
+
+  maybe (pure $ Just CannotSpawnCreep) (\spawn -> do
+        createCreepResult <- Spawn.createCreep spawn energyParts
+        pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
-getStateFromMemory = Coerce.unsafeCoerce unit
+getStateFromMemory = pure $ AiState
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
-writeStateToMemory = Coerce.unsafeCoerce unit
+writeStateToMemory state = do
+  mem <- Memory.getMemoryGlobal
+  Memory.set mem "aiState" (encodeJson state)
 
 writeInstructionsToQueue :: (Array Instruction) -> Eff BaseScreepsEffects Unit
-writeInstructionsToQueue = Coerce.unsafeCoerce unit
+writeInstructionsToQueue instructions = do
+  mem <- Memory.getMemoryGlobal
+  Memory.set mem "instructionQueue" (encodeJson instructions)
 
-generateInstruction :: (Array Event) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
-generateInstruction event state = Coerce.unsafeCoerce unit
+generateInstruction :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
+generateInstruction observations state = MyIdentity $ Identity $ Tuple (instructionsAndNextState.value) (instructionsAndNextState.accum) where
+  instructionsAndNextState = mapAccumL (\state observation -> { accum: state, value: SpawnCreep }) state observations
 
 main :: Eff BaseScreepsEffects Unit
 main = do
@@ -186,7 +238,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 20000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 10000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
