@@ -227,7 +227,10 @@ getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
   mem <- Memory.getMemoryGlobal
   aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
-  pure $ either (const $ AiState { creepStates: M.empty, creepInstructions: M.empty }) id aiState
+  -- HACK UNTIL FULLY MIGRATED
+  eitherCreepStates <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
+  let creepStates = either (const $ M.empty) id eitherCreepStates
+  pure $ either (const $ AiState { creepStates: M.empty, creepInstructions: M.empty }) (\(AiState aiState) -> AiState (aiState { creepStates = creepStates })) aiState -- HACK UNTIL FULLY MIGRATED
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
