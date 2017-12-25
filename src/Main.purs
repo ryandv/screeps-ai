@@ -44,6 +44,12 @@ instance encodePoint :: EncodeJson Point where
     , Tuple "y" $ fromNumber $ Int.toNumber y
     ]
 
+instance decodePoint :: DecodeJson Point where
+  decodeJson point = do
+    x <- getField (maybe (M.fromFoldable []) id (toObject point)) "x"
+    y <- getField (maybe (M.fromFoldable []) id (toObject point)) "y"
+    Right $ Point x y
+
 data CreepState = Idle | Harvesting | Transferring | Error
 
 data AiState = AiState
@@ -84,14 +90,16 @@ instance encodeInstruction :: EncodeJson Instruction where
     ]
 
 instance decodeInstruction :: DecodeJson Instruction where
-  decodeJson (instruction :: Json) = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
-                                         case instructionType of
-                                              (Right "SpawnCreep") -> Right SpawnCreep
-                                              (Right "DoLegacyHarvest") -> do
-                                                payload <- getField (maybe (M.fromFoldable []) id (toObject instruction)) "payload"
-                                                getField payload "creepName"
-                                              (Right _) -> Right SpawnCreep
-                                              (Left e) -> Left e
+  decodeJson instruction  = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
+                                case instructionType of
+                                     (Right "SpawnCreep") -> Right SpawnCreep
+                                     (Right "HarvestEnergy") -> do
+                                       payload <- getField (maybe (M.fromFoldable []) id (toObject instruction)) "payload"
+                                       creepName <- getField payload "creepName"
+                                       destination <- getField payload "destination"
+                                       Right $ HarvestEnergy creepName destination
+                                     (Right _) -> Right $ DoLegacyHarvest ""
+                                     (Left e) -> Left e
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
@@ -227,13 +235,13 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
-                                                                                             | (M.lookup creepName state.creepStates) == Just Idle = instructIdleCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
-                                                                                             | (M.lookup creepName state.creepStates) == Just Harvesting = { accum: (AiState state), value: [] }
+                                                                                             | (M.lookup creepName state.creepStates) == Just Idle = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
+                                                                                             | (M.lookup creepName state.creepStates) == Just Harvesting = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
                                                                                              | (M.lookup creepName state.creepStates) == Just Transferring = { accum: (AiState state), value: [] }
                                                                                              | otherwise = { accum: (AiState state), value: [] }
 
-  instructIdleCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructIdleCreepToHarvest pt { accum: (AiState state), value: instructions } creepName = { accum: (AiState { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates) }), value: [HarvestEnergy creepName pt] }
+  instructCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+  instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName = { accum: (AiState { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates) }), value: [HarvestEnergy creepName pt] }
 
 
 main :: Eff BaseScreepsEffects Unit
@@ -289,7 +297,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 5000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 20000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
