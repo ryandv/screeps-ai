@@ -257,7 +257,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 
   respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
   respondToSourceLocated (AiState { creepStates: creepStates }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
-    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Error)) $ M.keys creepStates
+    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Harvesting)) $ M.keys creepStates
 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
@@ -270,7 +270,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName =
     { accum: (AiState
       { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
-      , creepInstructions: M.empty
+      , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt]) creepName state.creepInstructions)
       })
     , value: [MoveTo creepName pt] 
     }
