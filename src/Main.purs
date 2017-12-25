@@ -231,7 +231,11 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
   respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
   respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
-  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } (M.keys creepStates)
+  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = respondToSourceLocated state point
+
+  respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
+  respondToSourceLocated (AiState { creepStates: creepStates }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
+    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Idle)) $ M.keys creepStates
 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
@@ -297,7 +301,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 20000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 10000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
