@@ -53,7 +53,7 @@ instance decodePoint :: DecodeJson Point where
 chebyshevSquared :: Point -> Point -> Int
 chebyshevSquared (Point x1 x2) (Point y1 y2) = max (x2 - x1) (y2 - y1)
 
-data CreepState = Idle | Harvesting | Transferring | Error
+data CreepState = Idle | Moving | Harvesting | Transferring | Error
 
 data AiState = AiState
   { creepStates :: (M.StrMap CreepState)
@@ -115,6 +115,7 @@ instance decodeInstruction :: DecodeJson Instruction where
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
+  show Moving = "Moving"
   show Harvesting = "Harvesting"
   show Transferring = "Transferring"
   show Error = "Error"
@@ -137,12 +138,14 @@ instance newtypeIdentity :: Newtype (MyIdentity a) a where
 
 instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Idle = fromString "Idle"
+  encodeJson Moving = fromString "Moving"
   encodeJson Harvesting = fromString "Harvesting"
   encodeJson Transferring = fromString "Transferring"
   encodeJson Error = fromString "Error"
 
 instance decodeCreepState :: DecodeJson CreepState where
   decodeJson j | toString j == Just "Idle" = Right Idle
+               | toString j == Just "Moving" = Right Moving
                | toString j == Just "Harvesting" = Right Harvesting
                | toString j == Just "Transferring" = Right Transferring
                | toString j == Just "Error" = Right Error
@@ -266,8 +269,11 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = respondToSourceLocated state point
   respondToObservation state (Arrived creepName) = { accum: state, value: [] }
   respondToObservation state (EnRoute creepName) = { accum: state, value: [] }
-  respondToObservation state (CreepCanHarvestSource creepName) =
-    { accum: state
+  respondToObservation (AiState state) (CreepCanHarvestSource creepName) =
+    { accum: (AiState
+      { creepStates: M.update (const $ Just Harvesting) creepName state.creepStates
+      , creepInstructions: M.empty
+      })
     , value: []
     }
 
@@ -278,6 +284,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
                                                                                              | (M.lookup creepName state.creepStates) == Just Idle = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
+                                                                                             | (M.lookup creepName state.creepStates) == Just Moving = { accum: (AiState state), value: [] }
                                                                                              | (M.lookup creepName state.creepStates) == Just Harvesting = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
                                                                                              | (M.lookup creepName state.creepStates) == Just Transferring = { accum: (AiState state), value: [] }
                                                                                              | otherwise = { accum: (AiState state), value: [] }
@@ -285,7 +292,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   instructCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName =
     { accum: (AiState
-      { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
+      { creepStates: (M.update (const $ Just Moving) creepName state.creepStates)
       , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt]) creepName state.creepInstructions)
       })
     , value: [MoveTo creepName pt]
@@ -323,6 +330,7 @@ doCreepAction spawn creep = do
 doDecideCreepAction :: Spawn -> CreepState -> Creep -> Eff BaseScreepsEffects CreepState
 doDecideCreepAction spawn state creep | state == Error        = pure Idle
                                       | state == Idle         = doCollectEnergy creep
+                                      | state == Moving       = pure Idle
                                       | state == Harvesting   = doDecideFromHarvesting creep
                                       | state == Transferring = doTransferEnergy spawn creep
                                       | otherwise             = pure Idle
