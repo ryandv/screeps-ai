@@ -60,6 +60,9 @@ data AiState = AiState
   , creepInstructions :: (M.StrMap (Array Instruction))
   }
 
+creepInstructions :: AiState -> M.StrMap (Array Instruction)
+creepInstructions (AiState state) = state.creepInstructions
+
 instance encodeAiState :: EncodeJson AiState where
   encodeJson (AiState { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
     [ Tuple "creepStates" $ encodeJson creepStates
@@ -79,6 +82,7 @@ data Reports = Reports
   , ticksToDowngrade :: Int
   , sourceLocations :: Array Point
   , creepLocations :: M.StrMap Point
+  , creepInstructions :: M.StrMap (Array Instruction)
   }
 
 data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point
@@ -173,6 +177,9 @@ getCreepCapacity creep = Tuple (Creep.totalAmtCarrying creep) (Creep.carryCapaci
 generateReports :: Eff BaseScreepsEffects Reports
 generateReports = do
   game <- Game.getGameGlobal
+  mem <- Memory.getMemoryGlobal
+  -- Hmm...
+  aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
 
   let creeps = Game.creeps game
   let spawn = M.lookup "Spawn1" $ Game.spawns game
@@ -190,6 +197,7 @@ generateReports = do
                         let roomPos = (RoomObject.pos source) in
                             Point (RoomPosition.x roomPos) (RoomPosition.y roomPos)) sources
     , creepLocations: map (\creep -> Point (RoomPosition.x (RoomObject.pos creep)) (RoomPosition.y (RoomObject.pos creep))) creeps
+    , creepInstructions: creepInstructions (either (const $ AiState { creepInstructions: M.empty, creepStates: M.empty }) id aiState)
     }
 
 analyzeReports :: Reports -> Array Observation
@@ -199,16 +207,28 @@ analyzeReports (Reports
   , ticksToDowngrade: ticksToDowngrade
   , sourceLocations: sourceLocations
   , creepLocations: creepLocations
+  , creepInstructions: creepInstructions
   }) = catMaybes
     [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
       <> map SourceLocated sourceLocations
-      <> map (\(Tuple creepName creepLocation) -> CreepCanHarvestSource creepName) (filter creepCanHarvestSource unfoldedCreepLocations) where
+      <> map toArrivedObservation (filter hasArrivedAtDestination (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
-    unfoldedCreepLocations :: Array (Tuple String Point)
-    unfoldedCreepLocations = M.fold (\acc key val -> (Tuple key val):acc) [] creepLocations
+    unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
+    unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
 
-    creepCanHarvestSource :: Tuple String Point -> Boolean
-    creepCanHarvestSource = (\(Tuple _ creepLocation) -> any ((\distance -> distance <= 1) <<< chebyshevSquared creepLocation) sourceLocations)
+    isCurrentlyMoving :: Tuple String (Array Instruction) -> Boolean
+    isCurrentlyMoving instructions = case head (snd instructions) of
+                                            (Just (MoveTo _ _ )) -> true
+                                            _ -> false
+
+    toArrivedObservation :: Tuple String (Array Instruction) -> Observation
+    toArrivedObservation (Tuple creepName _) = Arrived creepName
+
+    hasArrivedAtDestination :: Tuple String (Array Instruction) -> Boolean
+    hasArrivedAtDestination = (\(Tuple creepName instructions) -> any ((\distance -> distance <= 1) <<< chebyshevSquared (getDestination creepName)) sourceLocations)
+
+    getDestination :: String -> Point
+    getDestination creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
 getInstructionQueue = do
@@ -233,8 +253,7 @@ executeInstruction (MoveTo creepName (Point x y)) = do
 
     maybe (throwError UndistinguishedErrors) (\creep -> do
       doTryCommand "MOVE_CREEP" $ Creep.moveTo creep (TargetPt x y)
-      let currentPosition = (RoomObject.pos creep)
-      if RoomPosition.inRangeTo currentPosition (TargetPt x y) 1 then pure $ Just (Arrived creepName) else pure $ Just (EnRoute creepName)) creep
+      pure $ Nothing) creep
 
   pure $ either (const Nothing) id $ observation
 
@@ -353,7 +372,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 20000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 10000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
