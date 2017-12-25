@@ -335,7 +335,7 @@ doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
 doTransferEnergy spawn creep = doRunCommands $
                                  (flip catchError) handleErrors $ do
                                    doSelectRecipient spawn creep
-                                   pure Idle where
+                                   pure Transferring where
 
     handleErrors :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
     handleErrors e | e == OutOfRangeError = pure Transferring
