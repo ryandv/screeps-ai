@@ -54,12 +54,20 @@ data CreepState = Idle | Harvesting | Transferring | Error
 
 data AiState = AiState
   { creepStates :: (M.StrMap CreepState)
+  , creepInstructions :: (M.StrMap (Array Instruction))
   }
 
 instance encodeAiState :: EncodeJson AiState where
-  encodeJson (AiState { creepStates: creepStates }) = fromObject $ M.fromFoldable
+  encodeJson (AiState { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
     [ Tuple "creepStates" $ encodeJson creepStates
+    , Tuple "creepInstructions" $ encodeJson creepInstructions
     ]
+
+instance decodeAiState :: DecodeJson AiState where
+  decodeJson json = do
+    creepStates <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepStates"
+    creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
+    pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
 data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | EnRoute String
 data Reports = Reports
@@ -217,10 +225,9 @@ executeInstruction (MoveTo creepName (Point x y)) = do
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
-  -- HACK UNTIL FULLY MIGRATED
   mem <- Memory.getMemoryGlobal
-  creepStatesHack <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
-  pure $ either (const $ AiState { creepStates: M.empty }) (\creepStates -> AiState { creepStates: creepStates }) creepStatesHack
+  aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
+  pure $ either (const $ AiState { creepStates: M.empty, creepInstructions: M.empty }) id aiState
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
@@ -257,7 +264,13 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
                                                                                              | otherwise = { accum: (AiState state), value: [] }
 
   instructCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName = { accum: (AiState { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates) }), value: [MoveTo creepName pt] }
+  instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName =
+    { accum: (AiState
+      { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
+      , creepInstructions: M.empty
+      })
+    , value: [MoveTo creepName pt] 
+    }
 
 
 main :: Eff BaseScreepsEffects Unit
