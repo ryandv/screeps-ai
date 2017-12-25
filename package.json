@@ -9,8 +9,8 @@
   "scripts": {
     "clean": "rm -rf output .pulp-cache",
     "build": "npm run clean && pulp --then \"npm run wrapMain\" build --skip-entry-point --optimise --to output/main.js",
-    "deploy": "cp output/screepsMain.js /home/ryandv/.config/Screeps/scripts/illiux_h4ck_me___21025/default/main.js",
-    "deploy:sim": "cp output/screepsMain.js ~/.config/Screeps/scripts/screeps.com/tutorial-1/main.js",
+    "deploy": "cp output/screepsMain.js ${SCREEPS_DEPLOY_PATH}",
+    "deploy:sim": "cp output/screepsMain.js ${SCREEPS_DEPLOY_PATH}",
     "wrapMain": "cp output/main.js output/screepsMain.js && echo 'module.exports.loop = PS[\"Main\"].main' >> output/screepsMain.js",
     "test": "pulp test",
     "watch": "pulp --watch --then \"npm run wrapMain && npm run deploy\" build --skip-entry-point --optimise --to output/main.js",
