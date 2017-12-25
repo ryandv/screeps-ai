@@ -38,6 +38,11 @@ import Screeps.RoomPosition as RoomPosition
 import Screeps.Spawn as Spawn
 
 data Point = Point Int Int
+instance encodePoint :: EncodeJson Point where
+  encodeJson (Point x y) = fromObject $ M.fromFoldable
+    [ Tuple "x" $ fromNumber $ Int.toNumber x
+    , Tuple "y" $ fromNumber $ Int.toNumber y
+    ]
 
 data CreepState = Idle | Harvesting | Transferring | Error
 
@@ -58,7 +63,7 @@ data Reports = Reports
   , sourceLocations :: Array Point
   }
 
-data Instruction = SpawnCreep | DoLegacyHarvest String
+data Instruction = SpawnCreep | DoLegacyHarvest String | HarvestEnergy String Point
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
@@ -69,6 +74,13 @@ instance encodeInstruction :: EncodeJson Instruction where
     [ Tuple "instruction_type" $ fromString "DoLegacyHarvest"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName ]
+    ]
+  encodeJson (HarvestEnergy creepName pt) = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "HarvestEnergy"
+    , Tuple "payload" $ fromObject $ M.fromFoldable
+      [ Tuple "creepName" $ fromString creepName
+      , Tuple "destination" $ encodeJson pt
+      ]
     ]
 
 instance decodeInstruction :: DecodeJson Instruction where
@@ -182,16 +194,8 @@ executeInstruction SpawnCreep = do
   maybe (pure $ Just CannotSpawnCreep) (\spawn -> do
         createCreepResult <- Spawn.createCreep spawn energyParts
         pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
-executeInstruction (DoLegacyHarvest creepName) = do
-  pure Nothing
-  --game <- Game.getGameGlobal
-
-  --let creeps = Game.creeps game
-  --let spawn = M.lookup "Spawn1" $ Game.spawns game
-
-  --maybe (pure Nothing) (\spawn -> do
-  --      maybe (pure Nothing) (\creep -> doCreepAction spawn creep >>= (const $ pure Nothing)) $ M.lookup creepName creeps) spawn
-
+executeInstruction (DoLegacyHarvest creepName) = pure Nothing
+executeInstruction (HarvestEnergy creepName pt) = pure Nothing
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
@@ -219,7 +223,18 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
   respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
   respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
-  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = { accum: state, value: map (\creepName -> DoLegacyHarvest creepName) (M.keys creepStates) }
+  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } (M.keys creepStates)
+
+  instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+  instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
+                                                                                             | (M.lookup creepName state.creepStates) == Just Idle = instructIdleCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
+                                                                                             | (M.lookup creepName state.creepStates) == Just Harvesting = { accum: (AiState state), value: [] }
+                                                                                             | (M.lookup creepName state.creepStates) == Just Transferring = { accum: (AiState state), value: [] }
+                                                                                             | otherwise = { accum: (AiState state), value: [] }
+
+  instructIdleCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+  instructIdleCreepToHarvest pt { accum: (AiState state), value: instructions } creepName = { accum: (AiState { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates) }), value: [HarvestEnergy creepName pt] }
+
 
 main :: Eff BaseScreepsEffects Unit
 main = do
@@ -274,7 +289,7 @@ doTransferEnergy spawn creep = doRunCommands $
 
     doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
     doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 10000
+                                        Just controller -> if Controller.ticksToDowngrade controller < 5000
                                                               then do
                                                                 doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
                                                                 doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
