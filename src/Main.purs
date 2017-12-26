@@ -184,6 +184,3 @@ main = do
   mainLoop
 
   pure unit
-
-doLogReturnCode :: String -> ReturnCode -> forall e. (EffScreepsCommand e) Unit
-doLogReturnCode actionName returnCode = log $ "[FAILED " <> actionName <> "]:" <> show returnCode
