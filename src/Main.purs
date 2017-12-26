@@ -76,7 +76,7 @@ instance decodeAiState :: DecodeJson AiState where
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
     pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepCanHarvestSource String
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String
 data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
@@ -332,13 +332,6 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
     { accum: (AiState
       { creepStates: state.creepStates
       , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
-      })
-    , value: []
-    }
-  respondToObservation (AiState state) (CreepCanHarvestSource creepName) =
-    { accum: (AiState
-      { creepStates: M.update (const $ Just Harvesting) creepName state.creepStates
-      , creepInstructions: M.empty
       })
     , value: []
     }
