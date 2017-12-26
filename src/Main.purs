@@ -76,7 +76,7 @@ instance decodeAiState :: DecodeJson AiState where
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
     pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | EnRoute String | CreepCanHarvestSource String
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepCanHarvestSource String
 data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
@@ -226,7 +226,7 @@ analyzeReports (Reports
   }) = catMaybes
     [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
       <> map SourceLocated sourceLocations
-      <> map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions) where
+      <> catMaybes (map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
     unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
     unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
@@ -236,9 +236,9 @@ analyzeReports (Reports
                                             (Just (MoveTo _ _ )) -> true
                                             _ -> false
 
-    toArrivedObservation :: Tuple String (Array Instruction) -> Observation
-    toArrivedObservation creepInstructions | hasArrivedAtDestination creepInstructions = Arrived $ fst creepInstructions
-                                           | otherwise = EnRoute $ fst creepInstructions
+    toArrivedObservation :: Tuple String (Array Instruction) -> Maybe Observation
+    toArrivedObservation creepInstructions | hasArrivedAtDestination creepInstructions = Just <<< Arrived $ fst creepInstructions
+                                           | otherwise = Nothing
 
     hasArrivedAtDestination :: Tuple String (Array Instruction) -> Boolean
     hasArrivedAtDestination (Tuple creepName instructions) = 1 >= chebyshevSquared
@@ -333,23 +333,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
       { creepStates: state.creepStates
       , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
       })
-    , value: maybe [] id $ do
-        currentInstructions <- M.lookup creepName state.creepInstructions
-        nextInstructions <- tail currentInstructions
-        nextInstruction <- head nextInstructions
-
-        pure [nextInstruction]
-    }
-  respondToObservation (AiState state) (EnRoute creepName) =
-    { accum: (AiState state)
-    , value: maybe [] id $ do
-        currentInstructions <- M.lookup creepName state.creepInstructions
-        currentInstruction <- head currentInstructions
-        currentDestination <- case currentInstruction of
-                                   MoveTo _ pt -> Just $ pt
-                                   _ -> Nothing
-
-        pure $ [MoveTo creepName currentDestination]
+    , value: []
     }
   respondToObservation (AiState state) (CreepCanHarvestSource creepName) =
     { accum: (AiState
@@ -377,7 +361,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
       { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
       , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt, HarvestSource creepName pt]) creepName state.creepInstructions)
       })
-    , value: (MoveTo creepName pt):instructions
+    , value: []
     }
 
 
