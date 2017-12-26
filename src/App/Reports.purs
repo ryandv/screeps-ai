@@ -1,6 +1,6 @@
 module App.Reports(generateReports) where
 
-import Prelude
+import Prelude (bind, const, id, map, pure, ($), (<<<))
 
 import Control.Monad.Eff (Eff)
 
@@ -20,7 +20,7 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.RoomPosition as RoomPosition
 
-import Types
+import Types (AiState(..), BaseScreepsEffects, EffScreepsCommand, Point(..), Reports(..), getCreepInstructions)
 
 getCreepCapacity :: Creep -> Tuple Int Int
 getCreepCapacity creep = Tuple (Creep.totalAmtCarrying creep) (Creep.carryCapacity creep)

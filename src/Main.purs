@@ -1,6 +1,6 @@
 module Main where
 
-import Prelude
+import Prelude (Unit, bind, map, pure, show, unit, ($), (<$>), (<>))
 
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (log)
@@ -19,7 +19,7 @@ import App.Reports as App.Reports
 import AI.Observations as AI.Observations
 import AI.StateManager as AI.StateManager
 
-import Types
+import Types (AiState, BaseScreepsEffects, Instruction, getCreepInstructions)
 
 main :: Eff BaseScreepsEffects Unit
 main = do

@@ -1,13 +1,13 @@
 module AI.Observations(analyzeReports) where
 
-import Prelude
+import Prelude (id, map, otherwise, ($), (<), (<<<), (<>), (==), (>=))
 
 import Data.Array (catMaybes, filter, head, (:))
 import Data.Maybe (Maybe(..), maybe)
 import Data.StrMap as M
 import Data.Tuple (Tuple(..), fst, snd)
 
-import Types
+import Types (Instruction(..), Observation(..), Point(..), Reports(..), chebyshevDistance)
 
 unfoldStrMap :: forall a. M.StrMap a -> Array (Tuple String a)
 unfoldStrMap = M.fold (\acc key val -> (Tuple key val):acc) []
