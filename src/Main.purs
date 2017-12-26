@@ -211,7 +211,7 @@ analyzeReports (Reports
   }) = catMaybes
     [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
       <> map SourceLocated sourceLocations
-      <> map toArrivedObservation (filter hasArrivedAtDestination (filter isCurrentlyMoving unfoldedCreepInstructions)) where
+      <> map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions) where
 
     unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
     unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
@@ -222,7 +222,8 @@ analyzeReports (Reports
                                             _ -> false
 
     toArrivedObservation :: Tuple String (Array Instruction) -> Observation
-    toArrivedObservation (Tuple creepName _) = Arrived creepName
+    toArrivedObservation creepInstructions | hasArrivedAtDestination creepInstructions = Arrived $ fst creepInstructions
+                                           | otherwise = EnRoute $ fst creepInstructions
 
     hasArrivedAtDestination :: Tuple String (Array Instruction) -> Boolean
     hasArrivedAtDestination = (\(Tuple creepName instructions) -> any ((\distance -> distance <= 1) <<< chebyshevSquared (getDestination creepName)) sourceLocations)
@@ -247,6 +248,7 @@ executeInstruction SpawnCreep = do
         pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
 executeInstruction (DoLegacyHarvest creepName) = pure Nothing
 executeInstruction (MoveTo creepName (Point x y)) = do
+  log $ "Executing MoveTo(" <> creepName <> "," <> show x <> "," <> show y <> ")"
   game <- Game.getGameGlobal
   observation <- runExceptT do
     let creep = M.lookup creepName $ Game.creeps game
@@ -259,12 +261,13 @@ executeInstruction (MoveTo creepName (Point x y)) = do
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
+  game <- Game.getGameGlobal
+  let creeps = Game.creeps game
+
   mem <- Memory.getMemoryGlobal
   aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
-  -- HACK UNTIL FULLY MIGRATED
-  eitherCreepStates <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
-  let creepStates = either (const $ M.empty) id eitherCreepStates
-  pure $ either (const $ AiState { creepStates: M.empty, creepInstructions: M.empty }) (\(AiState aiState) -> AiState (aiState { creepStates = creepStates })) aiState -- HACK UNTIL FULLY MIGRATED
+
+  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) id aiState
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
@@ -287,7 +290,17 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
   respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = respondToSourceLocated state point
   respondToObservation state (Arrived creepName) = { accum: state, value: [] }
-  respondToObservation state (EnRoute creepName) = { accum: state, value: [] }
+  respondToObservation (AiState state) (EnRoute creepName) =
+    { accum: (AiState state)
+    , value: maybe [] id $ do
+        currentInstructions <- M.lookup creepName state.creepInstructions
+        currentInstruction <- head currentInstructions
+        currentDestination <- case currentInstruction of
+                                   MoveTo _ pt -> Just $ pt
+                                   _ -> Nothing
+
+        pure $ [MoveTo creepName currentDestination]
+    }
   respondToObservation (AiState state) (CreepCanHarvestSource creepName) =
     { accum: (AiState
       { creepStates: M.update (const $ Just Harvesting) creepName state.creepStates
@@ -298,7 +311,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 
   respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
   respondToSourceLocated (AiState { creepStates: creepStates }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
-    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Error)) $ M.keys creepStates
+    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Idle)) $ M.keys creepStates
 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
@@ -314,7 +327,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
       { creepStates: (M.update (const $ Just Moving) creepName state.creepStates)
       , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt]) creepName state.creepInstructions)
       })
-    , value: [MoveTo creepName pt]
+    , value: (MoveTo creepName pt):instructions
     }
 
 
@@ -326,10 +339,6 @@ main = do
   let spawn = M.lookup "Spawn1" $ Game.spawns game
 
   mainLoop
-  creepStates <- (maybe (pure M.empty) (\spawn -> traverse (doCreepAction spawn) creeps) spawn)
-
-  mem <- Memory.getMemoryGlobal
-  Memory.set mem "creepStates" (encodeJson creepStates)
 
   pure unit
 
@@ -342,16 +351,14 @@ doCreepAction spawn creep = do
   let creepStates = either (const M.empty) id eitherCreepStates
   let creepState = maybe Idle id $ M.lookup creepName creepStates
 
-  log $ "[" <> creepName <> " STATE]: " <> show creepState
-
   doDecideCreepAction spawn creepState creep
 
 doDecideCreepAction :: Spawn -> CreepState -> Creep -> Eff BaseScreepsEffects CreepState
 doDecideCreepAction spawn state creep | state == Error        = pure Idle
-                                      | state == Idle         = doCollectEnergy creep
+                                      | state == Idle         = pure Idle
                                       | state == Moving       = pure Idle
-                                      | state == Harvesting   = doDecideFromHarvesting creep
-                                      | state == Transferring = doTransferEnergy spawn creep
+                                      | state == Harvesting   = pure Idle
+                                      | state == Transferring = pure Idle
                                       | otherwise             = pure Idle
 
 doDecideFromHarvesting :: Creep -> Eff BaseScreepsEffects CreepState
