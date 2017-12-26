@@ -175,8 +175,9 @@ mainLoop = do
 
   state <- getStateFromMemory
 
-  let instructionQueue = concat $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
-  instructionResultObservations <- catMaybes <$> traverse executeInstruction instructionQueue
+  instructionQueue <- getInstructionQueue
+  let creepInstructionQueue = concat $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
+  instructionResultObservations <- catMaybes <$> traverse executeInstruction (instructionQueue <> creepInstructionQueue)
 
   let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
 
@@ -303,7 +304,9 @@ getStateFromMemory = do
   mem <- Memory.getMemoryGlobal
   aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
 
-  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) id aiState
+  -- a bit hacky - merge in newly spawned Creeps
+
+  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) (\(AiState state) -> (AiState state { creepStates = foldl (\acc creepName -> M.insert creepName Idle acc) state.creepStates $ M.keys creeps })) aiState
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
