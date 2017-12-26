@@ -119,24 +119,38 @@ instance decodeInstruction :: DecodeJson Instruction where
 data CreepState = Idle | Moving | Harvesting | Transferring | Error
 
 data AiState = AiState
-  { creepStates :: (M.StrMap CreepState)
-  , creepInstructions :: (M.StrMap (Array Instruction))
+  { creepContexts :: (M.StrMap CreepContext)
+  }
+
+data CreepContext = CreepContext
+  { creepStates :: CreepState
+  , creepInstructions :: (Array Instruction)
   }
 
 getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
-getCreepInstructions (AiState state) = state.creepInstructions
+getCreepInstructions (AiState state) = map (\(CreepContext context) -> context.creepInstructions) state.creepContexts
 
 instance encodeAiState :: EncodeJson AiState where
-  encodeJson (AiState { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+  encodeJson (AiState { creepContexts: creepContexts }) = fromObject $ M.fromFoldable
+    [ Tuple "creepContexts" $ encodeJson creepContexts
+    ]
+
+instance encodeCreepContext :: EncodeJson CreepContext where
+  encodeJson (CreepContext { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
     [ Tuple "creepStates" $ encodeJson creepStates
     , Tuple "creepInstructions" $ encodeJson creepInstructions
     ]
 
-instance decodeAiState :: DecodeJson AiState where
+instance decodeCreepContext :: DecodeJson CreepContext where
   decodeJson json = do
     creepStates <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepStates"
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
-    pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
+    pure $ CreepContext { creepStates: creepStates, creepInstructions: creepInstructions }
+
+instance decodeAiState :: DecodeJson AiState where
+  decodeJson json = do
+    creepContexts <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepContexts"
+    pure $ AiState { creepContexts: creepContexts }
 
 instance showCreepState :: Show CreepState where
   show Idle = "Idle"
