@@ -6,7 +6,6 @@ import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (log)
 import Control.Monad.State.Trans (StateT(..), runStateT)
 
-import Data.Argonaut.Encode (encodeJson)
 import Data.Array (catMaybes, concat, filter, head, tail, (:))
 import Data.Either (Either, either)
 import Data.Identity (Identity(..))
@@ -17,7 +16,7 @@ import Data.StrMap as M
 import Data.Tuple (Tuple(..), fst, snd)
 import Data.Traversable (Accum, foldl, mapAccumL, traverse)
 
-import Screeps (Creep, ReturnCode)
+import Screeps (Creep)
 import Screeps.Constants (find_sources)
 import Screeps.Controller as Controller
 import Screeps.Creep as Creep
@@ -27,7 +26,8 @@ import Screeps.Room as Room
 import Screeps.RoomObject as RoomObject
 import Screeps.RoomPosition as RoomPosition
 
-import App.Execution as Execution
+import App.Execution as App.Execution
+import App.Memory as App.Memory
 import AI.Reports as Reports
 import Types
 
@@ -37,16 +37,16 @@ main = do
   let reportObservations = Reports.analyzeReports reports
   log $ show reportObservations
 
-  state <- getStateFromMemory
+  state <- App.Memory.getStateFromMemory
 
-  instructionQueue <- getInstructionQueue
+  instructionQueue <- App.Memory.getInstructionQueue
   let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ getCreepInstructions state
-  instructionResultObservations <- catMaybes <$> traverse Execution.executeInstruction (instructionQueue <> creepInstructionQueue)
+  instructionResultObservations <- catMaybes <$> traverse App.Execution.executeInstruction (instructionQueue <> creepInstructionQueue)
 
   let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
 
-  writeStateToMemory $ snd instructionsAndNextState
-  writeInstructionsToQueue $ fst instructionsAndNextState
+  App.Memory.writeStateToMemory $ snd instructionsAndNextState
+  App.Memory.writeInstructionsToQueue $ fst instructionsAndNextState
 
   pure unit
 
@@ -81,38 +81,6 @@ generateReports = do
                                 Just controller -> (Point (RoomPosition.x (RoomObject.pos controller)) (RoomPosition.y (RoomObject.pos controller)))
                                 Nothing -> (Point 0 0)) maybeSpawn
     }
-
-getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
-getInstructionQueue = do
-  mem <- Memory.getMemoryGlobal
-  instructionQueue <- (Memory.get mem "instructionQueue") :: forall e. (EffScreepsCommand e) (Either String (Array Instruction))
-  pure $ either (const []) id instructionQueue
-
-
-getStateFromMemory :: Eff BaseScreepsEffects AiState
-getStateFromMemory = do
-  game <- Game.getGameGlobal
-  let creeps = Game.creeps game
-
-  mem <- Memory.getMemoryGlobal
-  aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
-
-  -- a bit hacky - merge in newly spawned Creeps
-
-  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) (\(AiState state) -> (AiState state
-                { creepStates = foldl (\acc creepName -> M.alter (maybe (Just Idle) Just) creepName acc) state.creepStates $ M.keys creeps
-                , creepInstructions = foldl (\acc creepName -> M.alter (maybe (Just []) Just) creepName acc) state.creepInstructions $ M.keys creeps
-                })) aiState
-
-writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
-writeStateToMemory state = do
-  mem <- Memory.getMemoryGlobal
-  Memory.set mem "aiState" (encodeJson state)
-
-writeInstructionsToQueue :: (Array Instruction) -> Eff BaseScreepsEffects Unit
-writeInstructionsToQueue instructions = do
-  mem <- Memory.getMemoryGlobal
-  Memory.set mem "instructionQueue" (encodeJson instructions)
 
 generateInstructions :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
 generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat $ instructionsAndNextState.value) (instructionsAndNextState.accum) where
