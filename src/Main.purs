@@ -100,15 +100,15 @@ data Reports = Reports
   , controllerLocation :: Point
   }
 
-data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point | HarvestSource String Point | TransferEnergyTo String Point
+data Instruction = SpawnCreep | DoNothing String | MoveTo String Point | HarvestSource String Point | TransferEnergyTo String Point
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
     [ Tuple "instruction_type" $ fromString "SpawnCreep"
     , Tuple "payload" $ fromObject $ M.fromFoldable []
     ]
-  encodeJson (DoLegacyHarvest creepName) = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "DoLegacyHarvest"
+  encodeJson (DoNothing creepName) = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "DoNothing"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName ]
     ]
@@ -153,7 +153,7 @@ instance decodeInstruction :: DecodeJson Instruction where
                                        creepName <- getField payload "creepName"
                                        targetLocation <- getField payload "targetLocation"
                                        Right $ TransferEnergyTo creepName targetLocation
-                                     (Right _) -> Right $ DoLegacyHarvest ""
+                                     (Right _) -> Right $ DoNothing ""
                                      (Left e) -> Left e
 
 instance showCreepState :: Show CreepState where
@@ -298,6 +298,7 @@ getInstructionQueue = do
   pure $ either (const []) id instructionQueue
 
 executeInstruction :: Instruction -> Eff BaseScreepsEffects (Maybe Observation)
+executeInstruction (DoNothing creepName) = pure Nothing
 executeInstruction SpawnCreep = do
   game <- Game.getGameGlobal
 
@@ -306,7 +307,6 @@ executeInstruction SpawnCreep = do
   maybe (pure $ Just CannotSpawnCreep) (\spawn -> do
         createCreepResult <- Spawn.createCreep spawn energyParts
         pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
-executeInstruction (DoLegacyHarvest creepName) = pure Nothing
 executeInstruction (MoveTo creepName (Point x y)) = do
   log $ "Executing MoveTo(" <> creepName <> "," <> show x <> "," <> show y <> ")"
   game <- Game.getGameGlobal
