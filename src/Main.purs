@@ -99,7 +99,7 @@ data Reports = Reports
   , controllerLocation :: Point
   }
 
-data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point | HarvestSource String Point
+data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point | HarvestSource String Point | TransferEnergyTo String Point
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
@@ -125,6 +125,13 @@ instance encodeInstruction :: EncodeJson Instruction where
       , Tuple "sourceLocation" $ encodeJson pt
       ]
     ]
+  encodeJson (TransferEnergyTo creepName pt) = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "TransferEnergyTo"
+    , Tuple "payload" $ fromObject $ M.fromFoldable
+      [ Tuple "creepName" $ fromString creepName
+      , Tuple "targetLocation" $ encodeJson pt
+      ]
+    ]
 
 instance decodeInstruction :: DecodeJson Instruction where
   decodeJson instruction  = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
@@ -140,6 +147,11 @@ instance decodeInstruction :: DecodeJson Instruction where
                                        creepName <- getField payload "creepName"
                                        sourceLocation <- getField payload "sourceLocation"
                                        Right $ HarvestSource creepName sourceLocation
+                                     (Right "TransferEnergyTo") -> do
+                                       payload <- getField (maybe (M.fromFoldable []) id (toObject instruction)) "payload"
+                                       creepName <- getField payload "creepName"
+                                       targetLocation <- getField payload "targetLocation"
+                                       Right $ TransferEnergyTo creepName targetLocation
                                      (Right _) -> Right $ DoLegacyHarvest ""
                                      (Left e) -> Left e
 
@@ -319,6 +331,20 @@ executeInstruction (HarvestSource creepName (Point x y)) = do
       ) creep
 
   pure $ either (const Nothing) id $ observation
+executeInstruction (TransferEnergyTo creepName (Point x y)) = do
+  log $ "Executing TransferEnergyTo(" <> creepName <> "," <> show x <> "," <> show y <> ")"
+  game <- Game.getGameGlobal
+  observation <- runExceptT do
+    let creep = M.lookup creepName $ Game.creeps game
+
+    maybe (throwError UndistinguishedErrors) (\creep ->
+      case Room.controller (RoomObject.room creep) of
+        Just controller -> do
+          doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
+          pure Nothing
+        _ -> pure $ Nothing) creep
+
+  pure $ either (const Nothing) id $ observation
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
@@ -380,8 +406,8 @@ respondToControllerIsLow (AiState state) controllerLocation = foldl (instructCre
 instructCreepToTransferToController :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
 instructCreepToTransferToController controllerLocation { accum: (AiState state), value: instructions } creepName =
   { accum: (AiState
-    { creepStates: (M.update (const $ Just Idle) creepName state.creepStates)
-    , creepInstructions: (M.update (const $ Just [MoveTo creepName controllerLocation]) creepName state.creepInstructions)
+    { creepStates: (M.update (const $ Just Error) creepName state.creepStates)
+    , creepInstructions: (M.update (const $ Just [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation]) creepName state.creepInstructions)
     })
   , value: []
   }
