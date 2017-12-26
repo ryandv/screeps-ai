@@ -19,6 +19,7 @@ import Data.Identity
 import Data.Int as Int
 import Data.Maybe
 import Data.Newtype (class Newtype, unwrap)
+import Data.Ord as Ord
 import Data.Semigroup
 import Data.Show
 import Data.StrMap as M
@@ -51,7 +52,7 @@ instance decodePoint :: DecodeJson Point where
     Right $ Point x y
 
 chebyshevSquared :: Point -> Point -> Int
-chebyshevSquared (Point x1 x2) (Point y1 y2) = max (x2 - x1) (y2 - y1)
+chebyshevSquared (Point x1 y1) (Point x2 y2) = max (Ord.abs $ x2 - x1) (Ord.abs $ y2 - y1)
 
 data CreepState = Idle | Moving | Harvesting | Transferring | Error
 
@@ -85,7 +86,7 @@ data Reports = Reports
   , creepInstructions :: M.StrMap (Array Instruction)
   }
 
-data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point
+data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point | HarvestSource String Point
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
@@ -104,6 +105,13 @@ instance encodeInstruction :: EncodeJson Instruction where
       , Tuple "destination" $ encodeJson pt
       ]
     ]
+  encodeJson (HarvestSource creepName pt) = fromObject $ M.fromFoldable
+    [ Tuple "instruction_type" $ fromString "HarvestSource"
+    , Tuple "payload" $ fromObject $ M.fromFoldable
+      [ Tuple "creepName" $ fromString creepName
+      , Tuple "sourceLocation" $ encodeJson pt
+      ]
+    ]
 
 instance decodeInstruction :: DecodeJson Instruction where
   decodeJson instruction  = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
@@ -114,6 +122,11 @@ instance decodeInstruction :: DecodeJson Instruction where
                                        creepName <- getField payload "creepName"
                                        destination <- getField payload "destination"
                                        Right $ MoveTo creepName destination
+                                     (Right "HarvestSource") -> do
+                                       payload <- getField (maybe (M.fromFoldable []) id (toObject instruction)) "payload"
+                                       creepName <- getField payload "creepName"
+                                       sourceLocation <- getField payload "sourceLocation"
+                                       Right $ HarvestSource creepName sourceLocation
                                      (Right _) -> Right $ DoLegacyHarvest ""
                                      (Left e) -> Left e
 
@@ -226,10 +239,14 @@ analyzeReports (Reports
                                            | otherwise = EnRoute $ fst creepInstructions
 
     hasArrivedAtDestination :: Tuple String (Array Instruction) -> Boolean
-    hasArrivedAtDestination = (\(Tuple creepName instructions) -> any ((\distance -> distance <= 1) <<< chebyshevSquared (getDestination creepName)) sourceLocations)
+    hasArrivedAtDestination (Tuple creepName instructions) = 1 >= chebyshevSquared
+      (getCurrentPosition creepName)
+      (maybe (Point 0 0) (\instruction -> case instruction of
+        MoveTo _ destination -> destination
+        _ -> Point 0 0) $ head instructions)
 
-    getDestination :: String -> Point
-    getDestination creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
+    getCurrentPosition :: String -> Point
+    getCurrentPosition creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
 getInstructionQueue = do
@@ -256,6 +273,24 @@ executeInstruction (MoveTo creepName (Point x y)) = do
     maybe (throwError UndistinguishedErrors) (\creep -> do
       doTryCommand "MOVE_CREEP" $ Creep.moveTo creep (TargetPt x y)
       pure $ Nothing) creep
+
+  pure $ either (const Nothing) id $ observation
+executeInstruction (HarvestSource creepName (Point x y)) = do
+  log $ "Executing HarvestSource(" <> creepName <> "," <> show x <> "," <> show y <> ")"
+  game <- Game.getGameGlobal
+  observation <- runExceptT do
+    let creep = M.lookup creepName $ Game.creeps game
+
+    maybe (throwError UndistinguishedErrors) (\creep -> do
+      let source = RoomPosition.lookFor (RoomPosition.mkRoomPosition x y (Room.name (RoomObject.room creep))) look_sources
+
+      case source of
+           (Right sources) -> maybe (pure $ Nothing) (\source -> do
+             doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source
+             pure Nothing) $ head sources
+           _ -> pure $ Nothing
+
+      ) creep
 
   pure $ either (const Nothing) id $ observation
 
@@ -289,7 +324,18 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
   respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
   respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = respondToSourceLocated state point
-  respondToObservation state (Arrived creepName) = { accum: state, value: [] }
+  respondToObservation (AiState state) (Arrived creepName) =
+    { accum: (AiState
+      { creepStates: state.creepStates
+      , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
+      })
+    , value: maybe [] id $ do
+        currentInstructions <- M.lookup creepName state.creepInstructions
+        nextInstructions <- tail currentInstructions
+        nextInstruction <- head nextInstructions
+
+        pure [nextInstruction]
+    }
   respondToObservation (AiState state) (EnRoute creepName) =
     { accum: (AiState state)
     , value: maybe [] id $ do
@@ -324,8 +370,8 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   instructCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName =
     { accum: (AiState
-      { creepStates: (M.update (const $ Just Moving) creepName state.creepStates)
-      , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt]) creepName state.creepInstructions)
+      { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
+      , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt, HarvestSource creepName pt]) creepName state.creepInstructions)
       })
     , value: (MoveTo creepName pt):instructions
     }
