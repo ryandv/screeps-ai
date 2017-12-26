@@ -9,6 +9,9 @@ import Data.Tuple (Tuple(..), fst, snd)
 
 import Types
 
+unfoldStrMap :: forall a. M.StrMap a -> Array (Tuple String a)
+unfoldStrMap = M.fold (\acc key val -> (Tuple key val):acc) []
+
 analyzeReports :: Reports -> Array Observation
 analyzeReports (Reports
   { numberOfCreeps: numberOfCreeps
@@ -18,27 +21,26 @@ analyzeReports (Reports
   , creepLocations: creepLocations
   , creepInstructions: creepInstructions
   , controllerLocation: controllerLocation
-  }) = catMaybes
-    [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
-    ]
-      <> map SourceLocated sourceLocations
-      <> catMaybes [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
-      <> creepFull creepCapacities
-      <> creepEmpty creepCapacities
-      <> catMaybes (map (toArrivedObservation creepLocations) (filter isCurrentlyMoving unfoldedCreepInstructions)) where
-
-  unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
-  unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
+  }) = catMaybes (
+    [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
+      <> map (Just <<< SourceLocated) sourceLocations
+      <> [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
+      <> (map Just $ creepFull creepCapacities)
+      <> (map Just $ creepEmpty creepCapacities)
+      <> (map (toArrivedObservation creepLocations) (filter isCurrentlyMoving $ unfoldStrMap creepInstructions)))
 
 hasArrivedAtDestination :: M.StrMap Point -> Tuple String (Array Instruction) -> Boolean
-hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= chebyshevSquared
-  (getCurrentPosition creepLocations creepName)
-  (maybe (Point 0 0) (\instruction -> case instruction of
-    MoveTo _ destination -> destination
-    _ -> Point 0 0) $ head instructions)
+hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= (chebyshevSquared hackCurrentPositionOrOrigin hackDestinationOrOrigin)
+    where
+      hackCurrentPositionOrOrigin = maybe origin id $ getCurrentPosition creepLocations creepName
+      hackDestinationOrOrigin = (maybe origin destinationOrOrigin $ head instructions)
+      origin = Point 0 0
+      destinationOrOrigin instruction = case instruction of
+                                                 MoveTo _ destination -> destination
+                                                 _ -> origin
 
-getCurrentPosition :: M.StrMap Point -> String -> Point
-getCurrentPosition creepLocations creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
+getCurrentPosition :: M.StrMap Point -> String -> Maybe Point
+getCurrentPosition creepLocations creepName = M.lookup creepName creepLocations
 
 isCurrentlyMoving :: Tuple String (Array Instruction) -> Boolean
 isCurrentlyMoving instructions = case head (snd instructions) of
@@ -50,7 +52,11 @@ toArrivedObservation creepLocations creepInstructions | hasArrivedAtDestination 
                                                       | otherwise = Nothing
 
 creepFull :: M.StrMap (Tuple Int Int) -> Array Observation
-creepFull creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+creepFull creepCapacities = map toObservation <<< filter isFull $ unfoldStrMap creepCapacities where
+  isFull (Tuple _ (Tuple carrying capacity)) = carrying >= capacity
+  toObservation (Tuple creepName _) = CreepFull creepName
 
 creepEmpty :: M.StrMap (Tuple Int Int) -> Array Observation
-creepEmpty creepCapacities = map (\(Tuple creepName _) -> CreepEmpty creepName) $ filter (\(Tuple creepName (Tuple carrying _)) -> carrying == 0) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+creepEmpty creepCapacities = map toObservation <<< filter isEmpty $ unfoldStrMap creepCapacities where
+  isEmpty (Tuple creepName (Tuple carrying _)) = carrying == 0
+  toObservation (Tuple creepName _) = CreepEmpty creepName
