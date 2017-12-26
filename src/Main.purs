@@ -39,6 +39,9 @@ import Screeps.RoomPosition as RoomPosition
 import Screeps.Spawn as Spawn
 
 data Point = Point Int Int
+
+instance showPoint :: Show Point where
+  show (Point x y) = "Point(" <> show x <> "," <> show y <> ")"
 instance encodePoint :: EncodeJson Point where
   encodeJson (Point x y) = fromObject $ M.fromFoldable
     [ Tuple "x" $ fromNumber $ Int.toNumber x
@@ -76,7 +79,16 @@ instance decodeAiState :: DecodeJson AiState where
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
     pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String | ControllerIsLow Point
+
+instance showObservation :: Show Observation where
+  show UnderCreepCap = "UnderCreepCap"
+  show CannotSpawnCreep = "UCannotSpawnCreep"
+  show (SourceLocated pt) = "SourceLocated " <> show pt
+  show (Arrived creepName) = "Arrived " <> creepName
+  show (CreepFull creepName) = "CreepFull " <> creepName
+  show (ControllerIsLow pt) = "ControllerIsLow " <> show pt
+
 data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
@@ -84,6 +96,7 @@ data Reports = Reports
   , sourceLocations :: Array Point
   , creepLocations :: M.StrMap Point
   , creepInstructions :: M.StrMap (Array Instruction)
+  , controllerLocation :: Point
   }
 
 data Instruction = SpawnCreep | DoLegacyHarvest String | MoveTo String Point | HarvestSource String Point
@@ -172,6 +185,7 @@ mainLoop :: Eff BaseScreepsEffects Unit
 mainLoop = do
   reports <- generateReports
   let reportObservations = analyzeReports reports
+  log $ show reportObservations
 
   state <- getStateFromMemory
 
@@ -213,6 +227,9 @@ generateReports = do
                             Point (RoomPosition.x roomPos) (RoomPosition.y roomPos)) sources
     , creepLocations: map (\creep -> Point (RoomPosition.x (RoomObject.pos creep)) (RoomPosition.y (RoomObject.pos creep))) creeps
     , creepInstructions: creepInstructions (either (const $ AiState { creepInstructions: M.empty, creepStates: M.empty }) id aiState)
+    , controllerLocation: maybe (Point 0 0) (\spawn -> case Room.controller $ RoomObject.room spawn of
+                                Just controller -> (Point (RoomPosition.x (RoomObject.pos controller)) (RoomPosition.y (RoomObject.pos controller)))
+                                Nothing -> (Point 0 0)) spawn
     }
 
 analyzeReports :: Reports -> Array Observation
@@ -223,9 +240,12 @@ analyzeReports (Reports
   , sourceLocations: sourceLocations
   , creepLocations: creepLocations
   , creepInstructions: creepInstructions
+  , controllerLocation: controllerLocation
   }) = catMaybes
-    [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
+    [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing
+    ]
       <> map SourceLocated sourceLocations
+      <> catMaybes [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
       <> creepCapacityObservations creepCapacities
       <> catMaybes (map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
@@ -331,46 +351,54 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
   instructionsAndNextState :: Accum AiState (Array (Array Instruction))
   instructionsAndNextState = mapAccumL respondToObservation state observations
 
-  respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
-  respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
-  respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
-  respondToObservation (AiState { creepStates: creepStates }) (SourceLocated point) = respondToSourceLocated state point
-  respondToObservation (AiState state) (Arrived creepName) =
-    { accum: (AiState
-      { creepStates: state.creepStates
-      , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
-      })
-    , value: []
-    }
-  respondToObservation (AiState state) (CreepFull creepName) =
-    { accum: (AiState
-      { creepStates: (M.update (const $ Just Idle) creepName state.creepStates)
-      , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
-      })
-    , value: []
-    }
+respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
+respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
+respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
+respondToObservation state (SourceLocated point) = respondToSourceLocated state point
+respondToObservation (AiState state) (Arrived creepName) =
+  { accum: (AiState
+    { creepStates: state.creepStates
+    , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
+    })
+  , value: []
+  }
+respondToObservation (AiState state) (CreepFull creepName) =
+  { accum: (AiState
+    { creepStates: (M.update (const $ Just Transferring) creepName state.creepStates)
+    , creepInstructions: M.update (\instructions -> case head instructions of
+                                  (Just (HarvestSource _ _)) -> tail instructions
+                                  _ -> Just instructions) creepName state.creepInstructions
+    })
+  , value: []
+  }
+respondToObservation state (ControllerIsLow controllerLocation) = respondToControllerIsLow state controllerLocation
+
+respondToControllerIsLow :: AiState -> Point -> Accum AiState (Array Instruction)
+respondToControllerIsLow (AiState state) controllerLocation = foldl (instructCreepToTransferToController controllerLocation) { accum: (AiState state), value: [] } transferringCreeps where
+  transferringCreeps = filter (\creepName -> maybe false ((==) Transferring) (M.lookup creepName state.creepStates)) $ M.keys state.creepStates
+
+instructCreepToTransferToController :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+instructCreepToTransferToController controllerLocation { accum: (AiState state), value: instructions } creepName =
+  { accum: (AiState
+    { creepStates: (M.update (const $ Just Idle) creepName state.creepStates)
+    , creepInstructions: (M.update (const $ Just [MoveTo creepName controllerLocation]) creepName state.creepInstructions)
+    })
+  , value: []
+  }
 
 
-  respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
-  respondToSourceLocated (AiState { creepInstructions: creepInstructions }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
-    idleCreeps = filter (\creepName -> maybe true null (M.lookup creepName creepInstructions)) $ M.keys creepInstructions
+respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
+respondToSourceLocated (AiState state) point = foldl (instructCreepToHarvestSource point) { accum: (AiState state), value: [] } idleCreeps where
+  idleCreeps = filter (\creepName -> maybe false ((==) Idle) (M.lookup creepName state.creepStates)) $ M.keys state.creepStates
 
-  instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
-                                                                                             | (M.lookup creepName state.creepStates) == Just Idle = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
-                                                                                             | (M.lookup creepName state.creepStates) == Just Moving = { accum: (AiState state), value: [] }
-                                                                                             | (M.lookup creepName state.creepStates) == Just Harvesting = instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName
-                                                                                             | (M.lookup creepName state.creepStates) == Just Transferring = { accum: (AiState state), value: [] }
-                                                                                             | otherwise = { accum: (AiState state), value: [] }
-
-  instructCreepToHarvest :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructCreepToHarvest pt { accum: (AiState state), value: instructions } creepName =
-    { accum: (AiState
-      { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
-      , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt, HarvestSource creepName pt]) creepName state.creepInstructions)
-      })
-    , value: []
-    }
+instructCreepToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+instructCreepToHarvestSource pt { accum: (AiState state), value: instructions } creepName =
+  { accum: (AiState
+    { creepStates: (M.update (const $ Just Harvesting) creepName state.creepStates)
+    , creepInstructions: (M.alter (const $ Just [MoveTo creepName pt, HarvestSource creepName pt]) creepName state.creepInstructions)
+    })
+  , value: []
+  }
 
 
 main :: Eff BaseScreepsEffects Unit
