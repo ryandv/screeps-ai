@@ -3,34 +3,29 @@ module Main where
 import Prelude
 
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class
+import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Console (CONSOLE, log)
-import Control.Monad.Except
-import Control.Monad.Except.Trans
-import Control.Monad.State
-import Control.Monad.State.Trans
+import Control.Monad.Except.Trans (ExceptT, runExceptT, throwError)
+import Control.Monad.State.Trans (StateT(..), runStateT)
 
-import Data.Argonaut.Core
-import Data.Argonaut.Decode
-import Data.Argonaut.Encode
-import Data.Array
-import Data.Either
-import Data.Identity
+import Data.Argonaut.Core (fromNumber, fromObject, fromString, toObject, toString)
+import Data.Argonaut.Decode (class DecodeJson, getField)
+import Data.Argonaut.Encode (class EncodeJson, encodeJson)
+import Data.Array (catMaybes, concat, filter, head, tail, (:))
+import Data.Either (Either(..), either)
+import Data.Identity (Identity(..))
 import Data.Int as Int
-import Data.Maybe
+import Data.Maybe (Maybe(..), maybe)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Ord as Ord
-import Data.Semigroup
-import Data.Show
 import Data.StrMap as M
-import Data.Tuple
-import Data.Traversable
+import Data.Tuple (Tuple(..), fst, snd)
+import Data.Traversable (Accum, foldl, mapAccumL, traverse)
 
-import Screeps
-import Screeps.Constants
+import Screeps (BodyPartType, CMD, Creep, MEMORY, ReturnCode, TICK, TIME, TargetPosition(..))
+import Screeps.Constants (find_sources, look_sources, ok, part_carry, part_move, part_work, resource_energy)
 import Screeps.Controller as Controller
 import Screeps.Creep as Creep
-import Screeps.FFI as FFI
 import Screeps.Game as Game
 import Screeps.Memory as Memory
 import Screeps.Room as Room
@@ -64,8 +59,8 @@ data AiState = AiState
   , creepInstructions :: (M.StrMap (Array Instruction))
   }
 
-creepInstructions :: AiState -> M.StrMap (Array Instruction)
-creepInstructions (AiState state) = state.creepInstructions
+getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
+getCreepInstructions (AiState state) = state.creepInstructions
 
 instance encodeAiState :: EncodeJson AiState where
   encodeJson (AiState { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
@@ -203,7 +198,7 @@ mainLoop = do
   state <- getStateFromMemory
 
   instructionQueue <- getInstructionQueue
-  let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
+  let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ getCreepInstructions state
   instructionResultObservations <- catMaybes <$> traverse executeInstruction (instructionQueue <> creepInstructionQueue)
 
   let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
@@ -224,8 +219,8 @@ generateReports = do
   aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
 
   let creeps = Game.creeps game
-  let spawn = M.lookup "Spawn1" $ Game.spawns game
-  let sources = maybe [] (\spawn -> Room.find (RoomObject.room spawn) find_sources) spawn
+  let maybeSpawn = M.lookup "Spawn1" $ Game.spawns game
+  let sources = maybe [] (\spawn -> Room.find (RoomObject.room spawn) find_sources) maybeSpawn
 
   let creepCapacities = map getCreepCapacity creeps
 
@@ -234,15 +229,15 @@ generateReports = do
     , creepCapacities: creepCapacities
     , ticksToDowngrade: maybe 0 (\spawn -> case Room.controller $ RoomObject.room spawn of
                                   Just controller -> Controller.ticksToDowngrade controller
-                                  Nothing -> 0) spawn
+                                  Nothing -> 0) maybeSpawn
     , sourceLocations: map (\source ->
                         let roomPos = (RoomObject.pos source) in
                             Point (RoomPosition.x roomPos) (RoomPosition.y roomPos)) sources
     , creepLocations: map (\creep -> Point (RoomPosition.x (RoomObject.pos creep)) (RoomPosition.y (RoomObject.pos creep))) creeps
-    , creepInstructions: creepInstructions (either (const $ AiState { creepInstructions: M.empty, creepStates: M.empty }) id aiState)
+    , creepInstructions: getCreepInstructions (either (const $ AiState { creepInstructions: M.empty, creepStates: M.empty }) id aiState)
     , controllerLocation: maybe (Point 0 0) (\spawn -> case Room.controller $ RoomObject.room spawn of
                                 Just controller -> (Point (RoomPosition.x (RoomObject.pos controller)) (RoomPosition.y (RoomObject.pos controller)))
-                                Nothing -> (Point 0 0)) spawn
+                                Nothing -> (Point 0 0)) maybeSpawn
     }
 
 analyzeReports :: Reports -> Array Observation
@@ -261,35 +256,35 @@ analyzeReports (Reports
       <> catMaybes [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
       <> creepFull creepCapacities
       <> creepEmpty creepCapacities
-      <> catMaybes (map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions)) where
+      <> catMaybes (map (toArrivedObservation creepLocations) (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
-    unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
-    unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
+  unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
+  unfoldedCreepInstructions = M.fold (\acc key val -> (Tuple key val):acc) [] creepInstructions
 
-    isCurrentlyMoving :: Tuple String (Array Instruction) -> Boolean
-    isCurrentlyMoving instructions = case head (snd instructions) of
-                                            (Just (MoveTo _ _ )) -> true
-                                            _ -> false
+hasArrivedAtDestination :: M.StrMap Point -> Tuple String (Array Instruction) -> Boolean
+hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= chebyshevSquared
+  (getCurrentPosition creepLocations creepName)
+  (maybe (Point 0 0) (\instruction -> case instruction of
+    MoveTo _ destination -> destination
+    _ -> Point 0 0) $ head instructions)
 
-    toArrivedObservation :: Tuple String (Array Instruction) -> Maybe Observation
-    toArrivedObservation creepInstructions | hasArrivedAtDestination creepInstructions = Just <<< Arrived $ fst creepInstructions
-                                           | otherwise = Nothing
+getCurrentPosition :: M.StrMap Point -> String -> Point
+getCurrentPosition creepLocations creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
 
-    hasArrivedAtDestination :: Tuple String (Array Instruction) -> Boolean
-    hasArrivedAtDestination (Tuple creepName instructions) = 1 >= chebyshevSquared
-      (getCurrentPosition creepName)
-      (maybe (Point 0 0) (\instruction -> case instruction of
-        MoveTo _ destination -> destination
-        _ -> Point 0 0) $ head instructions)
+isCurrentlyMoving :: Tuple String (Array Instruction) -> Boolean
+isCurrentlyMoving instructions = case head (snd instructions) of
+                                        (Just (MoveTo _ _ )) -> true
+                                        _ -> false
 
-    creepFull :: M.StrMap (Tuple Int Int) -> Array Observation
-    creepFull creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+toArrivedObservation :: M.StrMap Point -> Tuple String (Array Instruction) -> Maybe Observation
+toArrivedObservation creepLocations creepInstructions | hasArrivedAtDestination creepLocations creepInstructions = Just <<< Arrived $ fst creepInstructions
+                                                      | otherwise = Nothing
 
-    creepEmpty :: M.StrMap (Tuple Int Int) -> Array Observation
-    creepEmpty creepCapacities = map (\(Tuple creepName _) -> CreepEmpty creepName) $ filter (\(Tuple creepName (Tuple carrying _)) -> carrying == 0) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+creepFull :: M.StrMap (Tuple Int Int) -> Array Observation
+creepFull creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
 
-    getCurrentPosition :: String -> Point
-    getCurrentPosition creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
+creepEmpty :: M.StrMap (Tuple Int Int) -> Array Observation
+creepEmpty creepCapacities = map (\(Tuple creepName _) -> CreepEmpty creepName) $ filter (\(Tuple creepName (Tuple carrying _)) -> carrying == 0) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
 getInstructionQueue = do
@@ -302,52 +297,52 @@ executeInstruction (DoNothing creepName) = pure Nothing
 executeInstruction SpawnCreep = do
   game <- Game.getGameGlobal
 
-  let spawn = M.lookup "Spawn1" $ Game.spawns game
+  let maybeSpawn = M.lookup "Spawn1" $ Game.spawns game
 
   maybe (pure $ Just CannotSpawnCreep) (\spawn -> do
         createCreepResult <- Spawn.createCreep spawn energyParts
-        pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) spawn
+        pure $ either (const $ Just CannotSpawnCreep) (const Nothing) createCreepResult) maybeSpawn
 executeInstruction (MoveTo creepName (Point x y)) = do
   log $ "Executing MoveTo(" <> creepName <> "," <> show x <> "," <> show y <> ")"
   game <- Game.getGameGlobal
   observation <- runExceptT do
-    let creep = M.lookup creepName $ Game.creeps game
+    let maybeCreep = M.lookup creepName $ Game.creeps game
 
     maybe (throwError UndistinguishedErrors) (\creep -> do
       doTryCommand "MOVE_CREEP" $ Creep.moveTo creep (TargetPt x y)
-      pure $ Nothing) creep
+      pure $ Nothing) maybeCreep
 
   pure $ either (const Nothing) id $ observation
 executeInstruction (HarvestSource creepName (Point x y)) = do
   log $ "Executing HarvestSource(" <> creepName <> "," <> show x <> "," <> show y <> ")"
   game <- Game.getGameGlobal
   observation <- runExceptT do
-    let creep = M.lookup creepName $ Game.creeps game
+    let maybeCreep = M.lookup creepName $ Game.creeps game
 
     maybe (throwError UndistinguishedErrors) (\creep -> do
-      let source = RoomPosition.lookFor (RoomPosition.mkRoomPosition x y (Room.name (RoomObject.room creep))) look_sources
+      let eitherSource = RoomPosition.lookFor (RoomPosition.mkRoomPosition x y (Room.name (RoomObject.room creep))) look_sources
 
-      case source of
+      case eitherSource of
            (Right sources) -> maybe (pure $ Nothing) (\source -> do
              doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source
              pure Nothing) $ head sources
            _ -> pure $ Nothing
 
-      ) creep
+      ) maybeCreep
 
   pure $ either (const Nothing) id $ observation
 executeInstruction (TransferEnergyTo creepName (Point x y)) = do
   log $ "Executing TransferEnergyTo(" <> creepName <> "," <> show x <> "," <> show y <> ")"
   game <- Game.getGameGlobal
   observation <- runExceptT do
-    let creep = M.lookup creepName $ Game.creeps game
+    let maybeCreep = M.lookup creepName $ Game.creeps game
 
     maybe (throwError UndistinguishedErrors) (\creep ->
       case Room.controller (RoomObject.room creep) of
         Just controller -> do
           doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
           pure Nothing
-        _ -> pure $ Nothing) creep
+        _ -> pure $ Nothing) maybeCreep
 
   pure $ either (const Nothing) id $ observation
 
@@ -452,12 +447,12 @@ doTryCommand commandName command = do
  result <- (liftEff command)
  when (result == ok) $ (pure unit)
  when (result /= ok) $ case result of
-                            err_not_in_range -> doThrowError commandName result OutOfRangeError
                             err_not_enough_energy -> doThrowError commandName result OutOfEnergyError
                             err_not_enough_resources -> doThrowError commandName result OutOfResourcesError
+                            err_not_in_range -> doThrowError commandName result OutOfRangeError
                             _ -> doThrowError commandName result UndistinguishedErrors
 
-doThrowError :: String -> ReturnCode -> CommandError -> forall e. ExceptT CommandError (Eff BaseScreepsEffects) Unit
+doThrowError :: String -> ReturnCode -> CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doThrowError commandName result error = do
   throwError error
 
