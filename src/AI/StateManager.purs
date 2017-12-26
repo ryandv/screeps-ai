@@ -1,4 +1,4 @@
-module AI.StateManager where
+module AI.StateManager(generateInstructions) where
 
 import Prelude
 
@@ -21,66 +21,48 @@ respondToObservation :: AiState -> Observation -> Accum AiState (Array Instructi
 respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
 respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
 respondToObservation state (SourceLocated point) = respondToSourceLocated state point
-respondToObservation (AiState state) (Arrived creepName) =
-  { accum: (AiState
-    { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
-      { creepStates: oldContext.creepStates
-      , creepInstructions: maybe [] id <<< tail $ oldContext.creepInstructions
-      }) creepName state.creepContexts
-    })
-  , value: []
-  }
-respondToObservation (AiState state) (CreepFull creepName) =
-  { accum: (AiState
-    { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
-      { creepStates: Transferring
-      , creepInstructions: case head oldContext.creepInstructions of
-                             Just (HarvestSource _ _) -> maybe [] id <<< tail $ oldContext.creepInstructions
-                             _ -> oldContext.creepInstructions
-      }) creepName state.creepContexts
-    })
-  , value: []
-  }
-respondToObservation (AiState state) (CreepEmpty creepName) =
-  { accum: (AiState
-    { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
-      { creepStates: Idle
-      , creepInstructions: case head oldContext.creepInstructions of
-                             (Just (TransferEnergyTo _ _)) -> maybe [] id <<< tail $ oldContext.creepInstructions
-                             _ -> oldContext.creepInstructions
-      }) creepName state.creepContexts
-    })
-  , value: []
-  }
+respondToObservation state (Arrived creepName) = updateContext state creepName Nothing tailOrEmptyList
+respondToObservation state (CreepFull creepName) = updateContext state creepName (Just Transferring) finishHarvest
+respondToObservation state (CreepEmpty creepName) = updateContext state creepName (Just Idle) finishTransferEnergy
+
 respondToObservation state (ControllerIsLow controllerLocation) = respondToControllerIsLow state controllerLocation
 
 respondToControllerIsLow :: AiState -> Point -> Accum AiState (Array Instruction)
-respondToControllerIsLow (AiState state) controllerLocation = foldl (instructCreepToTransferToController controllerLocation) { accum: (AiState state), value: [] } transferringCreeps where
-  transferringCreeps = filter (\creepName -> maybe false (((==) Transferring) <<< (\(CreepContext context) -> context.creepStates)) (M.lookup creepName state.creepContexts)) $ M.keys state.creepContexts
+respondToControllerIsLow state controllerLocation = assignTasks instructCreepToTransferToController Transferring state controllerLocation where
 
-instructCreepToTransferToController :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-instructCreepToTransferToController controllerLocation { accum: (AiState state), value: instructions } creepName =
-  { accum: (AiState
-    { creepContexts: M.update (const <<< Just $ CreepContext
-      { creepStates: Error
-      , creepInstructions: [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation]
-      }) creepName state.creepContexts
-    })
-  , value: []
-  }
-
+  instructCreepToTransferToController :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+  instructCreepToTransferToController controllerLocation { accum: state } creepName = updateContext state creepName (Just Error) (const $ [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation])
 
 respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
-respondToSourceLocated (AiState state) point = foldl (instructCreepToHarvestSource point) { accum: (AiState state), value: [] } idleCreeps where
-  idleCreeps = filter (\creepName -> maybe false (((==) Idle) <<< (\(CreepContext context) -> context.creepStates)) (M.lookup creepName state.creepContexts)) $ M.keys state.creepContexts
+respondToSourceLocated state point = assignTasks instructCreepToHarvestSource Idle state point where
 
-instructCreepToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-instructCreepToHarvestSource pt { accum: (AiState state), value: instructions } creepName =
+  instructCreepToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
+  instructCreepToHarvestSource pt { accum: state } creepName = updateContext state creepName (Just Harvesting) (const $ [MoveTo creepName pt, HarvestSource creepName pt])
+
+updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -> Array Instruction) -> Accum AiState (Array Instruction)
+updateContext (AiState state) creepName newState newInstructionGenerator =
   { accum: (AiState
-    { creepContexts: M.update (const <<< Just $ CreepContext
-      { creepStates: Harvesting
-      , creepInstructions: [MoveTo creepName pt, HarvestSource creepName pt]
+    { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
+      { creepStates: maybe oldContext.creepStates id $ newState
+      , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
       }) creepName state.creepContexts
     })
   , value: []
   }
+
+tailOrEmptyList :: forall a. Array a -> Array a
+tailOrEmptyList = maybe [] id <<< tail
+
+finishHarvest :: Array Instruction -> Array Instruction
+finishHarvest instructions = case head instructions of
+                                    Just (HarvestSource _ _) -> tailOrEmptyList $ instructions
+                                    _ -> instructions
+
+finishTransferEnergy :: Array Instruction -> Array Instruction
+finishTransferEnergy instructions = case head instructions of
+                                    Just (TransferEnergyTo _ _) -> tailOrEmptyList $ instructions
+                                    _ -> instructions
+
+assignTasks :: (Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)) -> CreepState -> AiState -> Point -> Accum AiState (Array Instruction)
+assignTasks taskAssigner targetedCreepState (AiState state) point = foldl (taskAssigner point) { accum: (AiState state), value: [] } targetedCreeps where
+  targetedCreeps = filter (\creepName -> maybe false (((==) targetedCreepState) <<< (\(CreepContext context) -> context.creepStates)) (M.lookup creepName state.creepContexts)) $ M.keys state.creepContexts
