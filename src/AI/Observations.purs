@@ -30,7 +30,7 @@ analyzeReports (Reports
       <> (map (toArrivedObservation creepLocations) (filter isCurrentlyMoving $ unfoldStrMap creepInstructions)))
 
 hasArrivedAtDestination :: M.StrMap Point -> Tuple String (Array Instruction) -> Boolean
-hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= (chebyshevSquared hackCurrentPositionOrOrigin hackDestinationOrOrigin)
+hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= (chebyshevDistance hackCurrentPositionOrOrigin hackDestinationOrOrigin)
     where
       hackCurrentPositionOrOrigin = maybe origin id $ getCurrentPosition creepLocations creepName
       hackDestinationOrOrigin = (maybe origin destinationOrOrigin $ head instructions)

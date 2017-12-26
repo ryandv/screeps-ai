@@ -36,8 +36,8 @@ instance decodePoint :: DecodeJson Point where
     y <- getField (maybe (M.fromFoldable []) id (toObject point)) "y"
     Right $ Point x y
 
-chebyshevSquared :: Point -> Point -> Int
-chebyshevSquared (Point x1 y1) (Point x2 y2) = max (Ord.abs $ x2 - x1) (Ord.abs $ y2 - y1)
+chebyshevDistance :: Point -> Point -> Int
+chebyshevDistance (Point x1 y1) (Point x2 y2) = max (Ord.abs $ x2 - x1) (Ord.abs $ y2 - y1)
 
 data Reports = Reports
   { numberOfCreeps :: Int
