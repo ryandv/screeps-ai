@@ -176,7 +176,7 @@ mainLoop = do
   state <- getStateFromMemory
 
   instructionQueue <- getInstructionQueue
-  let creepInstructionQueue = concat $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
+  let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
   instructionResultObservations <- catMaybes <$> traverse executeInstruction (instructionQueue <> creepInstructionQueue)
 
   let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
@@ -337,8 +337,8 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
     }
 
   respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
-  respondToSourceLocated (AiState { creepStates: creepStates }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
-    idleCreeps = filter (\creepName -> (M.lookup creepName creepStates) == (Just Idle)) $ M.keys creepStates
+  respondToSourceLocated (AiState { creepInstructions: creepInstructions }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
+    idleCreeps = filter (\creepName -> maybe true null (M.lookup creepName creepInstructions)) $ M.keys creepInstructions
 
   instructCreepsToHarvestSource :: Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
   instructCreepsToHarvestSource pt { accum: (AiState state), value: instructions } creepName | (M.lookup creepName state.creepStates) == Just Error = { accum: (AiState state), value: [] }
