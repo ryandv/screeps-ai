@@ -173,10 +173,11 @@ mainLoop = do
   reports <- generateReports
   let reportObservations = analyzeReports reports
 
-  instructionQueue <- getInstructionQueue
+  state <- getStateFromMemory
+
+  let instructionQueue = concat $ M.fold (\acc key val -> val:acc) [] $ creepInstructions state
   instructionResultObservations <- catMaybes <$> traverse executeInstruction instructionQueue
 
-  state <- getStateFromMemory
   let instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
 
   writeStateToMemory $ snd instructionsAndNextState
