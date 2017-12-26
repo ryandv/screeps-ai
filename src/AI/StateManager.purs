@@ -64,5 +64,15 @@ finishTransferEnergy instructions = case head instructions of
                                     _ -> instructions
 
 assignTasks :: (Point -> Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)) -> CreepState -> AiState -> Point -> Accum AiState (Array Instruction)
-assignTasks taskAssigner targetedCreepState (AiState state) point = foldl (taskAssigner point) { accum: (AiState state), value: [] } targetedCreeps where
-  targetedCreeps = filter (\creepName -> maybe false (((==) targetedCreepState) <<< (\(CreepContext context) -> context.creepStates)) (M.lookup creepName state.creepContexts)) $ M.keys state.creepContexts
+assignTasks taskAssigner targetedCreepState (AiState state) point =
+  foldl (taskAssigner point)
+        { accum: (AiState state), value: [] }
+        (targetedCreeps targetedCreepState state.creepContexts)
+
+targetedCreeps :: CreepState -> M.StrMap CreepContext -> Array String
+targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTargeted <<< getCreepState) <<< lookupCreepContext) $ M.keys creepContexts where
+
+  creepNames = M.keys creepContexts
+  isCreepTargeted = ((==) targetedCreepState)
+  getCreepState (CreepContext context) = context.creepStates
+  lookupCreepContext = (flip M.lookup) creepContexts
