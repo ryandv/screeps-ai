@@ -306,7 +306,10 @@ getStateFromMemory = do
 
   -- a bit hacky - merge in newly spawned Creeps
 
-  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) (\(AiState state) -> (AiState state { creepStates = foldl (\acc creepName -> M.insert creepName Idle acc) state.creepStates $ M.keys creeps })) aiState
+  pure $ either (const $ AiState { creepStates: map (const $ Idle) creeps, creepInstructions: map (const []) creeps }) (\(AiState state) -> (AiState state
+                { creepStates = foldl (\acc creepName -> M.alter (maybe (Just Idle) Just) creepName acc) state.creepStates $ M.keys creeps
+                , creepInstructions = foldl (\acc creepName -> M.alter (maybe (Just []) Just) creepName acc) state.creepInstructions $ M.keys creeps
+                })) aiState
 
 writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
