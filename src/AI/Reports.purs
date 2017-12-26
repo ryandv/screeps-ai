@@ -1,4 +1,4 @@
-module AI.Reports where
+module AI.Reports(analyzeReports) where
 
 import Prelude
 
