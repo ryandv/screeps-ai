@@ -333,87 +333,9 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 
 main :: Eff BaseScreepsEffects Unit
 main = do
-  game <- Game.getGameGlobal
-
-  let creeps = Game.creeps game
-  let spawn = M.lookup "Spawn1" $ Game.spawns game
-
   mainLoop
 
   pure unit
-
-doCreepAction :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
-doCreepAction spawn creep = do
-  mem <- Memory.getMemoryGlobal
-  let creepName = Creep.name creep
-
-  eitherCreepStates <- (Memory.get mem "creepStates") :: forall e. (EffScreepsCommand e) (Either String (M.StrMap CreepState))
-  let creepStates = either (const M.empty) id eitherCreepStates
-  let creepState = maybe Idle id $ M.lookup creepName creepStates
-
-  doDecideCreepAction spawn creepState creep
-
-doDecideCreepAction :: Spawn -> CreepState -> Creep -> Eff BaseScreepsEffects CreepState
-doDecideCreepAction spawn state creep | state == Error        = pure Idle
-                                      | state == Idle         = pure Idle
-                                      | state == Moving       = pure Idle
-                                      | state == Harvesting   = pure Idle
-                                      | state == Transferring = pure Idle
-                                      | otherwise             = pure Idle
-
-doDecideFromHarvesting :: Creep -> Eff BaseScreepsEffects CreepState
-doDecideFromHarvesting creep | (Creep.totalAmtCarrying creep) < (Creep.carryCapacity creep) = doCollectEnergy creep
-                             | otherwise = pure Transferring
-
-doTransferEnergy :: Spawn -> Creep -> Eff BaseScreepsEffects CreepState
-doTransferEnergy spawn creep = doRunCommands $
-                                 (flip catchError) handleErrors $ do
-                                   doSelectRecipient spawn creep
-                                   pure Transferring where
-
-    handleErrors :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
-    handleErrors e | e == OutOfRangeError = pure Transferring
-                   | e == OutOfEnergyError = pure Idle
-                   | e == OutOfResourcesError = pure Idle
-                   | otherwise = throwError e
-
-    doSelectRecipient :: Spawn -> Creep -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
-    doSelectRecipient spawn creep = case Room.controller $ RoomObject.room creep of
-                                        Just controller -> if Controller.ticksToDowngrade controller < 10000
-                                                              then do
-                                                                doTryCommand "MOVE_CREEP_TO_CONTROLLER" $ Creep.moveTo creep (TargetObj controller)
-                                                                doTryCommand "TRANSFER_ENERGY_TO_CONTROLLER" $ Creep.transferToStructure creep controller resource_energy
-                                                              else do
-                                                                doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
-                                                                doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
-                                        Nothing -> do
-                                          doTryCommand "MOVE_CREEP_TO_SPAWN" $ Creep.moveTo creep (TargetObj spawn)
-                                          doTryCommand "TRANSFER_ENERGY_TO_SPAWN" $ Creep.transferToStructure creep spawn resource_energy
-
-doRunCommands :: ExceptT CommandError (Eff BaseScreepsEffects) CreepState -> Eff BaseScreepsEffects CreepState
-doRunCommands command = either (const $ pure Error) pure =<< runExceptT command
-
-doCollectEnergy :: Creep -> Eff BaseScreepsEffects CreepState
-doCollectEnergy creep = do
-  let room = RoomObject.room creep
-  let sources = Room.find room find_sources
-
-  let source = head sources
-
-  maybe (log "No more sources" >>= (const $ pure Idle)) doHarvestEnergy source where
-
-    doHarvestEnergy :: Source -> Eff BaseScreepsEffects CreepState
-    doHarvestEnergy source = doRunCommands $ (flip catchError) handleOutOfRange $ doMoveAndHarvest creep source
-
-    handleOutOfRange :: CommandError -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
-    handleOutOfRange e | e == OutOfRangeError = pure Harvesting
-                       | otherwise = throwError e
-
-doMoveAndHarvest :: Creep -> Source -> ExceptT CommandError (Eff BaseScreepsEffects) CreepState
-doMoveAndHarvest creep source = do
-  doTryCommand "MOVE_CREEP_TO_SOURCE" $ Creep.moveTo creep (TargetObj source)
-  doTryCommand "HARVEST_SOURCE" $ Creep.harvestSource creep source
-  pure Harvesting
 
 doTryCommand :: String -> Eff BaseScreepsEffects ReturnCode -> ExceptT CommandError (Eff BaseScreepsEffects) Unit
 doTryCommand commandName command = do
