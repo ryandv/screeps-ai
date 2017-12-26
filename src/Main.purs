@@ -76,7 +76,7 @@ instance decodeAiState :: DecodeJson AiState where
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
     pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String
 data Reports = Reports
   { numberOfCreeps :: Int
   , creepCapacities :: M.StrMap (Tuple Int Int)
@@ -226,6 +226,7 @@ analyzeReports (Reports
   }) = catMaybes
     [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
       <> map SourceLocated sourceLocations
+      <> creepCapacityObservations creepCapacities
       <> catMaybes (map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
     unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
@@ -246,6 +247,9 @@ analyzeReports (Reports
       (maybe (Point 0 0) (\instruction -> case instruction of
         MoveTo _ destination -> destination
         _ -> Point 0 0) $ head instructions)
+
+    creepCapacityObservations :: M.StrMap (Tuple Int Int) -> Array Observation
+    creepCapacityObservations creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
 
     getCurrentPosition :: String -> Point
     getCurrentPosition creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
@@ -338,6 +342,14 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
       })
     , value: []
     }
+  respondToObservation (AiState state) (CreepFull creepName) =
+    { accum: (AiState
+      { creepStates: (M.update (const $ Just Idle) creepName state.creepStates)
+      , creepInstructions: M.update (maybe Nothing Just <<< tail) creepName state.creepInstructions
+      })
+    , value: []
+    }
+
 
   respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
   respondToSourceLocated (AiState { creepInstructions: creepInstructions }) point = foldl (instructCreepsToHarvestSource point) { accum: state, value: [] } idleCreeps where
