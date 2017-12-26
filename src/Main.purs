@@ -28,7 +28,7 @@ import Screeps.RoomPosition as RoomPosition
 import App.Execution as App.Execution
 import App.Memory as App.Memory
 
-import AI.Reports as AI.Reports
+import AI.Observations as AI.Observations
 import AI.StateManager as AI.StateManager
 
 import Types
@@ -36,7 +36,7 @@ import Types
 main :: Eff BaseScreepsEffects Unit
 main = do
   reports <- generateReports
-  let reportObservations = AI.Reports.analyzeReports reports
+  let reportObservations = AI.Observations.analyzeReports reports
   log $ show reportObservations
 
   state <- App.Memory.getStateFromMemory
