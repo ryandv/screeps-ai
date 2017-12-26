@@ -79,7 +79,7 @@ instance decodeAiState :: DecodeJson AiState where
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
     pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String | ControllerIsLow Point
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String | CreepEmpty String | ControllerIsLow Point
 
 instance showObservation :: Show Observation where
   show UnderCreepCap = "UnderCreepCap"
@@ -87,6 +87,7 @@ instance showObservation :: Show Observation where
   show (SourceLocated pt) = "SourceLocated " <> show pt
   show (Arrived creepName) = "Arrived " <> creepName
   show (CreepFull creepName) = "CreepFull " <> creepName
+  show (CreepEmpty creepName) = "CreepEmpty " <> creepName
   show (ControllerIsLow pt) = "ControllerIsLow " <> show pt
 
 data Reports = Reports
@@ -258,7 +259,8 @@ analyzeReports (Reports
     ]
       <> map SourceLocated sourceLocations
       <> catMaybes [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
-      <> creepCapacityObservations creepCapacities
+      <> creepFull creepCapacities
+      <> creepEmpty creepCapacities
       <> catMaybes (map toArrivedObservation (filter isCurrentlyMoving unfoldedCreepInstructions)) where
 
     unfoldedCreepInstructions :: Array (Tuple String (Array Instruction))
@@ -280,8 +282,11 @@ analyzeReports (Reports
         MoveTo _ destination -> destination
         _ -> Point 0 0) $ head instructions)
 
-    creepCapacityObservations :: M.StrMap (Tuple Int Int) -> Array Observation
-    creepCapacityObservations creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+    creepFull :: M.StrMap (Tuple Int Int) -> Array Observation
+    creepFull creepCapacities = map (\(Tuple creepName _) -> CreepFull creepName) $ filter (\(Tuple creepName (Tuple carrying capacity)) -> carrying >= capacity) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
+
+    creepEmpty :: M.StrMap (Tuple Int Int) -> Array Observation
+    creepEmpty creepCapacities = map (\(Tuple creepName _) -> CreepEmpty creepName) $ filter (\(Tuple creepName (Tuple carrying _)) -> carrying == 0) $ M.fold (\acc key val -> (Tuple key val):acc) [] creepCapacities
 
     getCurrentPosition :: String -> Point
     getCurrentPosition creepName = maybe (Point 0 0) id $ M.lookup creepName creepLocations
@@ -393,6 +398,15 @@ respondToObservation (AiState state) (CreepFull creepName) =
     { creepStates: (M.update (const $ Just Transferring) creepName state.creepStates)
     , creepInstructions: M.update (\instructions -> case head instructions of
                                   (Just (HarvestSource _ _)) -> tail instructions
+                                  _ -> Just instructions) creepName state.creepInstructions
+    })
+  , value: []
+  }
+respondToObservation (AiState state) (CreepEmpty creepName) =
+  { accum: (AiState
+    { creepStates: (M.update (const $ Just Idle) creepName state.creepStates)
+    , creepInstructions: M.update (\instructions -> case head instructions of
+                                  (Just (TransferEnergyTo _ _)) -> tail instructions
                                   _ -> Just instructions) creepName state.creepInstructions
     })
   , value: []
