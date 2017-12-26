@@ -31,8 +31,8 @@ import App.Execution as Execution
 import AI.Reports as Reports
 import Types
 
-mainLoop :: Eff BaseScreepsEffects Unit
-mainLoop = do
+main :: Eff BaseScreepsEffects Unit
+main = do
   reports <- generateReports
   let reportObservations = Reports.analyzeReports reports
   log $ show reportObservations
@@ -177,10 +177,3 @@ instructCreepToHarvestSource pt { accum: (AiState state), value: instructions } 
     })
   , value: []
   }
-
-
-main :: Eff BaseScreepsEffects Unit
-main = do
-  mainLoop
-
-  pure unit
