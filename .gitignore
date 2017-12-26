@@ -8,3 +8,4 @@ psc.tix
 psc-ide-server.tix
 /psc-bundle.tix
 *.#*
+*.swp
