@@ -2,15 +2,22 @@ module Types where
 
 import Prelude
 
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Console (CONSOLE)
+
 import Data.Argonaut.Core (fromNumber, fromObject, fromString, toObject, toString)
 import Data.Argonaut.Decode (class DecodeJson, getField)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.Either (Either(..), either)
+import Data.Either (Either(..))
+import Data.Identity (Identity(..))
 import Data.Int as Int
 import Data.Maybe (Maybe(..), maybe)
+import Data.Newtype (class Newtype)
 import Data.Ord as Ord
 import Data.StrMap as M
-import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple (Tuple(..))
+
+import Screeps (CMD, MEMORY, TICK, TIME)
 
 data Point = Point Int Int
 
@@ -108,3 +115,63 @@ instance decodeInstruction :: DecodeJson Instruction where
                                        Right $ TransferEnergyTo creepName targetLocation
                                      (Right _) -> Right $ DoNothing ""
                                      (Left e) -> Left e
+
+data CreepState = Idle | Moving | Harvesting | Transferring | Error
+
+data AiState = AiState
+  { creepStates :: (M.StrMap CreepState)
+  , creepInstructions :: (M.StrMap (Array Instruction))
+  }
+
+getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
+getCreepInstructions (AiState state) = state.creepInstructions
+
+instance encodeAiState :: EncodeJson AiState where
+  encodeJson (AiState { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+    [ Tuple "creepStates" $ encodeJson creepStates
+    , Tuple "creepInstructions" $ encodeJson creepInstructions
+    ]
+
+instance decodeAiState :: DecodeJson AiState where
+  decodeJson json = do
+    creepStates <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepStates"
+    creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
+    pure $ AiState { creepStates: creepStates, creepInstructions: creepInstructions }
+
+instance showCreepState :: Show CreepState where
+  show Idle = "Idle"
+  show Moving = "Moving"
+  show Harvesting = "Harvesting"
+  show Transferring = "Transferring"
+  show Error = "Error"
+
+derive instance eqCreepState :: Eq CreepState
+
+data CommandError = UndistinguishedErrors | OutOfRangeError | OutOfEnergyError | OutOfResourcesError
+
+derive instance eqCommandError :: Eq CommandError
+
+type EffScreepsCommand e = Eff (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY | e)
+
+type BaseScreepsEffects = (cmd :: CMD, console :: CONSOLE, tick :: TICK, time :: TIME, memory :: MEMORY)
+
+newtype MyIdentity a = MyIdentity (Identity a)
+
+instance newtypeIdentity :: Newtype (MyIdentity a) a where
+  wrap a = (MyIdentity (Identity a))
+  unwrap (MyIdentity (Identity a)) = a
+
+instance encodeCreepState :: EncodeJson CreepState where
+  encodeJson Idle = fromString "Idle"
+  encodeJson Moving = fromString "Moving"
+  encodeJson Harvesting = fromString "Harvesting"
+  encodeJson Transferring = fromString "Transferring"
+  encodeJson Error = fromString "Error"
+
+instance decodeCreepState :: DecodeJson CreepState where
+  decodeJson j | toString j == Just "Idle" = Right Idle
+               | toString j == Just "Moving" = Right Moving
+               | toString j == Just "Harvesting" = Right Harvesting
+               | toString j == Just "Transferring" = Right Transferring
+               | toString j == Just "Error" = Right Error
+               | otherwise = Left "Failed to parse creepState"
