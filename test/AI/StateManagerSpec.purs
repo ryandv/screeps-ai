@@ -57,7 +57,7 @@ spec = do
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
             { creepStates: Harvesting
-            , creepInstructions: []
+            , creepInstructions: [ HarvestSource "Alice" (Point 0 0) ]
             }
           }
         observations = [ UnderCreepCap , SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
@@ -83,7 +83,7 @@ spec = do
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
             { creepStates: Transferring
-            , creepInstructions: []
+            , creepInstructions: [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
             }
           }
         observations = [ UnderCreepCap , SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice", Arrived "Alice" ]
