@@ -65,3 +65,16 @@ spec = do
 
           creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Transferring)
           creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` [ ]
+
+      it "instructs Transferring Creeps to move to the Room Controller" $ let
+        currentState = AiState
+          { creepContexts: M.singleton "Alice" $ CreepContext
+            { creepStates: Transferring
+            , creepInstructions: []
+            }
+          }
+        observations = [ UnderCreepCap , SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
+        instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions observations)) currentState) :: Tuple (Array Instruction) AiState in do
+
+          creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Transferring)
+          creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
