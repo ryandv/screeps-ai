@@ -22,6 +22,9 @@ getInstructionQueue = do
   instructionQueue <- (Memory.get mem "instructionQueue") :: forall e. (EffScreepsCommand e) (Either String (Array Instruction))
   pure $ either (const []) id instructionQueue
 
+mergeNewlySpawnedCreep :: M.StrMap CreepContext -> String -> M.StrMap CreepContext
+mergeNewlySpawnedCreep state creepName = M.alter (maybe (Just $ CreepContext { creepStates: Idle , creepInstructions: [] }) Just) creepName state
+
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
@@ -31,11 +34,11 @@ getStateFromMemory = do
   mem <- Memory.getMemoryGlobal
   aiState <- (Memory.get mem "aiState") :: forall e. (EffScreepsCommand e) (Either String AiState)
 
-  -- a bit hacky - merge in newly spawned Creeps
+  -- a bit hacky - merge in newly spawned Creeps, prune deceased ones
 
   pure $ either (const $ AiState { creepContexts: map (const $ CreepContext { creepStates: Idle , creepInstructions: [] }) creeps })
                 (\(AiState state) -> (AiState state
-                  { creepContexts = foldl (\acc creepName -> M.alter (maybe (Just $ CreepContext { creepStates: Idle , creepInstructions: [] }) Just) creepName acc) state.creepContexts $ M.keys creeps
+                  { creepContexts = foldl mergeNewlySpawnedCreep state.creepContexts $ M.keys creeps
                   })) aiState
 
 
