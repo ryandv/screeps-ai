@@ -104,3 +104,16 @@ spec = do
 
           creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Transferring)
           creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
+
+      it "instructs Creeps that have transferred all their energy to become Idle" $ let
+        currentState = AiState
+          { creepContexts: M.singleton "Alice" $ CreepContext
+            { creepStates: Error -- hack, should rename to the real Transferring - the others are TransferringEnRoute or something
+            , creepInstructions: [ TransferEnergyTo "Alice" (Point 22 15) ]
+            }
+          }
+        observations = [ UnderCreepCap , SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepEmpty "Alice" ]
+        instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions observations)) currentState) :: Tuple (Array Instruction) AiState in do
+
+          creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Idle)
+          creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` []
