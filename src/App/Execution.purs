@@ -21,6 +21,7 @@ import Screeps.RoomObject as RoomObject
 import Screeps.RoomPosition as RoomPosition
 import Screeps.Spawn as Spawn
 
+import App.Types
 import Types
 
 executeInstruction :: Instruction -> Eff BaseScreepsEffects (Maybe Observation)

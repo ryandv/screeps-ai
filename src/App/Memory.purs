@@ -13,6 +13,7 @@ import Data.Traversable (Accum, foldl, mapAccumL, traverse)
 import Screeps.Game as Game
 import Screeps.Memory as Memory
 
+import App.Types
 import Types
 
 getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)

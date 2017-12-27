@@ -19,7 +19,8 @@ import App.Reports as App.Reports
 import AI.Observations as AI.Observations
 import AI.StateManager as AI.StateManager
 
-import Types (AiState, BaseScreepsEffects, Instruction, getCreepInstructions)
+import Types (AiState, Instruction, getCreepInstructions)
+import App.Types (BaseScreepsEffects)
 
 main :: Eff BaseScreepsEffects Unit
 main = do
