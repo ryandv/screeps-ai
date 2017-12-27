@@ -5,6 +5,7 @@ import Prelude
 import Control.Monad.Eff (Eff)
 
 import Data.Argonaut.Encode (encodeJson)
+import Data.Array (elem)
 import Data.Either (Either, either)
 import Data.Maybe (Maybe(..), maybe)
 import Data.StrMap as M
@@ -23,8 +24,10 @@ getInstructionQueue = do
   pure $ either (const []) id instructionQueue
 
 mergeNewlySpawnedCreep :: M.StrMap CreepContext -> String -> M.StrMap CreepContext
-mergeNewlySpawnedCreep state creepName = M.alter (maybe (Just $ CreepContext { creepStates: Idle , creepInstructions: [] }) Just) creepName state
+mergeNewlySpawnedCreep creepContexts creepName = M.alter (maybe (Just $ CreepContext { creepStates: Idle , creepInstructions: [] }) Just) creepName creepContexts
 
+pruneDeceasedCreep :: Array String -> M.StrMap CreepContext -> String -> M.StrMap CreepContext
+pruneDeceasedCreep creeps creepContexts creepName = M.alter (maybe Nothing (\creepContext -> if creepName `elem` creeps then Just creepContext else Nothing)) creepName creepContexts
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do
@@ -38,7 +41,7 @@ getStateFromMemory = do
 
   pure $ either (const $ AiState { creepContexts: map (const $ CreepContext { creepStates: Idle , creepInstructions: [] }) creeps })
                 (\(AiState state) -> (AiState state
-                  { creepContexts = foldl mergeNewlySpawnedCreep state.creepContexts $ M.keys creeps
+                  { creepContexts = foldl (pruneDeceasedCreep (M.keys creeps)) (foldl mergeNewlySpawnedCreep state.creepContexts $ (M.keys creeps)) $ M.keys state.creepContexts
                   })) aiState
 
 
