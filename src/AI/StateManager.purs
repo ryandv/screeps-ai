@@ -20,11 +20,12 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
 respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
 respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
-respondToObservation state (SourceLocated point) = respondToSourceLocated state point
+
 respondToObservation state (Arrived creepName) = updateContext state creepName Nothing tailOrEmptyList
 respondToObservation state (CreepFull creepName) = updateContext state creepName (Just Transferring) finishHarvest
 respondToObservation state (CreepEmpty creepName) = updateContext state creepName (Just Idle) finishTransferEnergy
 
+respondToObservation state (SourceLocated point) = respondToSourceLocated state point
 respondToObservation state (ControllerIsLow controllerLocation) = respondToControllerIsLow state controllerLocation
 
 respondToControllerIsLow :: AiState -> Point -> Accum AiState (Array Instruction)

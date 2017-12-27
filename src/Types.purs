@@ -16,6 +16,8 @@ import Data.Tuple (Tuple(..))
 
 data Point = Point Int Int
 
+derive instance eqPoint :: Eq Point
+
 instance showPoint :: Show Point where
   show (Point x y) = "Point(" <> show x <> "," <> show y <> ")"
 
@@ -56,6 +58,15 @@ instance showObservation :: Show Observation where
   show (ControllerIsLow pt) = "ControllerIsLow " <> show pt
 
 data Instruction = SpawnCreep | DoNothing String | MoveTo String Point | HarvestSource String Point | TransferEnergyTo String Point
+
+derive instance eqInstruction :: Eq Instruction
+
+instance showInstruction :: Show Instruction where
+  show SpawnCreep = "SpawnCreep"
+  show (DoNothing creepName) = "DoNothing " <> creepName
+  show (MoveTo creepName point) = "MoveTo " <> creepName <> " " <> show point
+  show (HarvestSource creepName point) = "HarvestSource " <> creepName <> " " <> show point
+  show (TransferEnergyTo creepName point) = "TransferEnergyTo " <> creepName <> " " <> show point
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
@@ -117,10 +128,18 @@ data AiState = AiState
   { creepContexts :: (M.StrMap CreepContext)
   }
 
+instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap CreepContext) } where
+  wrap state = AiState state
+  unwrap (AiState state) = state
+
 data CreepContext = CreepContext
   { creepStates :: CreepState
   , creepInstructions :: (Array Instruction)
   }
+
+instance newtypeCreepContext :: Newtype CreepContext { creepStates :: CreepState , creepInstructions :: (Array Instruction) } where
+  wrap ctx = CreepContext ctx
+  unwrap (CreepContext ctx) = ctx
 
 getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
 getCreepInstructions (AiState state) = map (\(CreepContext context) -> context.creepInstructions) state.creepContexts
