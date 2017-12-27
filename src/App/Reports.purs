@@ -39,7 +39,7 @@ generateReports = do
   let creepCapacities = map getCreepCapacity creeps
 
   pure $ Reports
-    { numberOfCreeps: maybe 0 id <<< Int.fromNumber $ M.size creeps
+    { numberOfCreeps: M.size creeps
     , creepCapacities: creepCapacities
     , ticksToDowngrade: maybe 0 (\spawn -> case Room.controller $ RoomObject.room spawn of
                                   Just controller -> Controller.ticksToDowngrade controller

@@ -2,8 +2,8 @@
   "name": "screeps",
   "dependencies": {
     "bower": "^1.8.0",
-    "pulp": "^10.0.0",
-    "purescript": "^0.10.2",
+    "pulp": "^12.0.1",
+    "purescript": "^0.11.7",
     "screeps-profiler": "^1.1.2"
   },
   "scripts": {

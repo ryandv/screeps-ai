@@ -1,6 +1,6 @@
 module Main where
 
-import Prelude (Unit, bind, map, pure, show, unit, ($), (<$>), (<>))
+import Prelude (Unit, bind, discard, map, pure, show, unit, ($), (<$>), (<>))
 
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (log)
