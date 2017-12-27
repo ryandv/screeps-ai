@@ -21,7 +21,7 @@ creepInstructionsFor :: String -> AiState -> Array Instruction
 creepInstructionsFor creepName state = maybe [] (\(CreepContext creepContext) -> creepContext.creepInstructions) (M.lookup creepName (unwrap state).creepContexts)
 
 creepStateFor :: String -> AiState -> Maybe CreepState
-creepStateFor creepName state = map (\(CreepContext creepContext) -> creepContext.creepStates) (M.lookup creepName (unwrap state).creepContexts)
+creepStateFor creepName state = map (\(CreepContext creepContext) -> creepContext.creepState) (M.lookup creepName (unwrap state).creepContexts)
 
 spec :: forall r. Spec r Unit
 spec = do
@@ -30,7 +30,7 @@ spec = do
       it "instructs Idle Creeps to start harvesting energy" $ let
         currentState = AiState
             { creepContexts: M.singleton "Alice" $ CreepContext
-              { creepStates: Idle
+              { creepState: Idle
               , creepInstructions: []
               }
             }
@@ -43,7 +43,7 @@ spec = do
       it "instructs Harvesting Creeps to start harvesting once they have Arrived at their destination" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Harvesting
+            { creepState: Harvesting
             , creepInstructions: [ MoveTo "Alice" (Point 0 0), HarvestSource "Alice" (Point 0 0) ]
             }
           }
@@ -56,7 +56,7 @@ spec = do
       it "instructs Harvesting Creeps to stop harvesting once they are full" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Harvesting
+            { creepState: Harvesting
             , creepInstructions: [ HarvestSource "Alice" (Point 0 0) ]
             }
           }
@@ -69,7 +69,7 @@ spec = do
       it "instructs Transferring Creeps to move to the Room Controller" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Transferring
+            { creepState: Transferring
             , creepInstructions: []
             }
           }
@@ -82,7 +82,7 @@ spec = do
       it "instructs Transferring Creeps that have Arrived at the Room Controller to TransferEnergyTo it" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Transferring
+            { creepState: Transferring
             , creepInstructions: [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
             }
           }
@@ -95,7 +95,7 @@ spec = do
       it "(legacy) enters an unnecessary intermediate state that does nothing" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Transferring
+            { creepState: Transferring
             , creepInstructions: [ TransferEnergyTo "Alice" (Point 22 15) ]
             }
           }
@@ -108,7 +108,7 @@ spec = do
       it "instructs Creeps that have transferred all their energy to become Idle" $ let
         currentState = AiState
           { creepContexts: M.singleton "Alice" $ CreepContext
-            { creepStates: Error -- hack, should rename to the real Transferring - the others are TransferringEnRoute or something
+            { creepState: Error -- hack, should rename to the real Transferring - the others are TransferringEnRoute or something
             , creepInstructions: [ TransferEnergyTo "Alice" (Point 22 15) ]
             }
           }

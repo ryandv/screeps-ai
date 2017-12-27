@@ -133,11 +133,11 @@ instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap CreepCon
   unwrap (AiState state) = state
 
 data CreepContext = CreepContext
-  { creepStates :: CreepState
+  { creepState :: CreepState
   , creepInstructions :: (Array Instruction)
   }
 
-instance newtypeCreepContext :: Newtype CreepContext { creepStates :: CreepState , creepInstructions :: (Array Instruction) } where
+instance newtypeCreepContext :: Newtype CreepContext { creepState :: CreepState , creepInstructions :: (Array Instruction) } where
   wrap ctx = CreepContext ctx
   unwrap (CreepContext ctx) = ctx
 
@@ -150,16 +150,16 @@ instance encodeAiState :: EncodeJson AiState where
     ]
 
 instance encodeCreepContext :: EncodeJson CreepContext where
-  encodeJson (CreepContext { creepStates: creepStates, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
-    [ Tuple "creepStates" $ encodeJson creepStates
+  encodeJson (CreepContext { creepState: creepState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+    [ Tuple "creepState" $ encodeJson creepState
     , Tuple "creepInstructions" $ encodeJson creepInstructions
     ]
 
 instance decodeCreepContext :: DecodeJson CreepContext where
   decodeJson json = do
-    creepStates <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepStates"
+    creepState <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepState"
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
-    pure $ CreepContext { creepStates: creepStates, creepInstructions: creepInstructions }
+    pure $ CreepContext { creepState: creepState, creepInstructions: creepInstructions }
 
 instance decodeAiState :: DecodeJson AiState where
   decodeJson json = do

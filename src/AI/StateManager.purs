@@ -44,7 +44,7 @@ updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -
 updateContext (AiState state) creepName newState newInstructionGenerator =
   { accum: (AiState
     { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
-      { creepStates: maybe oldContext.creepStates id $ newState
+      { creepState: maybe oldContext.creepState id $ newState
       , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
       }) creepName state.creepContexts
     })
@@ -75,5 +75,5 @@ targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTa
 
   creepNames = M.keys creepContexts
   isCreepTargeted = ((==) targetedCreepState)
-  getCreepState (CreepContext context) = context.creepStates
+  getCreepState (CreepContext context) = context.creepState
   lookupCreepContext = (flip M.lookup) creepContexts
