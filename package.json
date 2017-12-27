@@ -13,7 +13,7 @@
     "deploy:sim": "cp output/screepsMain.js ${SCREEPS_DEPLOY_PATH}",
     "wrapMain": "cp output/main.js output/screepsMain.js && echo 'module.exports.loop = PS[\"Main\"].main' >> output/screepsMain.js",
     "test": "pulp test",
-    "watch": "pulp --watch --then \"npm run wrapMain && npm run deploy\" build --skip-entry-point --optimise --to output/main.js",
+    "watch": "pulp --watch --then \"npm t && npm run wrapMain && npm run deploy\" build --skip-entry-point --optimise --to output/main.js",
     "watch:deploy": "npm run clean && pulp --watch --then \"npm run wrapMain && npm run deploy\" build --skip-entry-point --optimise --to output/main.js",
     "watch:sim": "npm run clean && pulp --watch --then \"npm run wrapMain && npm run deploy:sim\" build --skip-entry-point --optimise --to output/main.js",
     "watch:test": "pulp --watch test"
