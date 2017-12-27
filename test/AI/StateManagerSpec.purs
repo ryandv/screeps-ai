@@ -91,3 +91,16 @@ spec = do
 
           creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Transferring)
           creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` [ TransferEnergyTo "Alice" (Point 22 15) ]
+
+      it "(legacy) enters an unnecessary intermediate state that does nothing" $ let
+        currentState = AiState
+          { creepContexts: M.singleton "Alice" $ CreepContext
+            { creepStates: Transferring
+            , creepInstructions: [ TransferEnergyTo "Alice" (Point 22 15) ]
+            }
+          }
+        observations = [ UnderCreepCap , SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
+        instructionsAndNextState = (unwrap $ runStateT (StateT (generateInstructions observations)) currentState) :: Tuple (Array Instruction) AiState in do
+
+          creepStateFor "Alice" (snd instructionsAndNextState) `shouldEqual` (Just Transferring)
+          creepInstructionsFor "Alice" (snd instructionsAndNextState) `shouldEqual` [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
