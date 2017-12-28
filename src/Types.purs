@@ -50,7 +50,7 @@ data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arri
 
 instance showObservation :: Show Observation where
   show UnderCreepCap = "UnderCreepCap"
-  show CannotSpawnCreep = "UCannotSpawnCreep"
+  show CannotSpawnCreep = "CannotSpawnCreep"
   show (SourceLocated pt) = "SourceLocated " <> show pt
   show (Arrived creepName) = "Arrived " <> creepName
   show (CreepFull creepName) = "CreepFull " <> creepName
@@ -70,30 +70,30 @@ instance showInstruction :: Show Instruction where
 
 instance encodeInstruction :: EncodeJson Instruction where
   encodeJson SpawnCreep = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "SpawnCreep"
+    [ Tuple "instructionType" $ fromString "SpawnCreep"
     , Tuple "payload" $ fromObject $ M.fromFoldable []
     ]
   encodeJson (DoNothing creepName) = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "DoNothing"
+    [ Tuple "instructionType" $ fromString "DoNothing"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName ]
     ]
   encodeJson (MoveTo creepName pt) = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "MoveTo"
+    [ Tuple "instructionType" $ fromString "MoveTo"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName
       , Tuple "destination" $ encodeJson pt
       ]
     ]
   encodeJson (HarvestSource creepName pt) = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "HarvestSource"
+    [ Tuple "instructionType" $ fromString "HarvestSource"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName
       , Tuple "sourceLocation" $ encodeJson pt
       ]
     ]
   encodeJson (TransferEnergyTo creepName pt) = fromObject $ M.fromFoldable
-    [ Tuple "instruction_type" $ fromString "TransferEnergyTo"
+    [ Tuple "instructionType" $ fromString "TransferEnergyTo"
     , Tuple "payload" $ fromObject $ M.fromFoldable
       [ Tuple "creepName" $ fromString creepName
       , Tuple "targetLocation" $ encodeJson pt
@@ -101,7 +101,7 @@ instance encodeInstruction :: EncodeJson Instruction where
     ]
 
 instance decodeInstruction :: DecodeJson Instruction where
-  decodeJson instruction  = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instruction_type") in
+  decodeJson instruction  = let instructionType = (getField (maybe (M.fromFoldable []) id (toObject instruction)) "instructionType") in
                                 case instructionType of
                                      (Right "SpawnCreep") -> Right SpawnCreep
                                      (Right "MoveTo") -> do

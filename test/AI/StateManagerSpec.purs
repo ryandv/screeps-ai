@@ -19,6 +19,13 @@ import Types
 spec :: forall r. Spec r Unit
 spec = do
   describe "AI.StateManager" $ do
+    describe "spawns Creeps when below the global cap" $ do
+      it "instructs the Spawn to SpawnCreep when below the global cap" $ let
+        currentState = singletonState "Spawn1" Error []
+        observations = [ UnderCreepCap ]
+        instructionsAndNextState = runStateMachine currentState observations in do
+          creepStateFor "Spawn1" (snd instructionsAndNextState) `shouldEqual` (Just Error)
+          creepInstructionsFor "Spawn1" (snd instructionsAndNextState) `shouldEqual` [ SpawnCreep ]
     describe "transfers energy to the Room's Controller" $ do
       it "instructs Idle Creeps to start harvesting energy" $ let
         currentState = singletonState "Alice" Idle []

@@ -5,7 +5,7 @@ import Prelude
 import Control.Monad.Eff (Eff)
 
 import Data.Argonaut.Encode (encodeJson)
-import Data.Array (elem)
+import Data.Array (cons, elem)
 import Data.Either (Either, either)
 import Data.Maybe (Maybe(..), maybe)
 import Data.StrMap as M
@@ -27,7 +27,7 @@ mergeNewlySpawnedCreep :: M.StrMap CreepContext -> String -> M.StrMap CreepConte
 mergeNewlySpawnedCreep creepContexts creepName = M.alter (maybe (Just $ CreepContext { creepState: Idle , creepInstructions: [] }) Just) creepName creepContexts
 
 pruneDeceasedCreep :: Array String -> M.StrMap CreepContext -> String -> M.StrMap CreepContext
-pruneDeceasedCreep creeps creepContexts creepName = M.alter (maybe Nothing (\creepContext -> if creepName `elem` creeps then Just creepContext else Nothing)) creepName creepContexts
+pruneDeceasedCreep creeps creepContexts creepName = M.alter (maybe Nothing (\creepContext -> if creepName `elem` (cons "Spawn1" creeps) then Just creepContext else Nothing)) creepName creepContexts
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
 getStateFromMemory = do

@@ -20,7 +20,15 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
 respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
 
-respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
+respondToObservation (AiState oldState) UnderCreepCap =
+  { accum: (AiState
+    { creepContexts: M.alter (const <<< Just $ CreepContext
+      { creepState: Error
+      , creepInstructions: [ SpawnCreep ]
+      }) "Spawn1" oldState.creepContexts
+    })
+  , value: []
+  }
 
 respondToObservation state (Arrived creepName) = updateContext state creepName Nothing tailOrEmptyList
 respondToObservation state (CreepFull creepName) = updateContext state creepName (Just Transferring) finishHarvest

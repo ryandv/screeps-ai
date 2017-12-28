@@ -27,6 +27,7 @@ import Types
 executeInstruction :: Instruction -> Eff BaseScreepsEffects (Maybe Observation)
 executeInstruction (DoNothing creepName) = pure Nothing
 executeInstruction SpawnCreep = do
+  log $ "Executing SpawnCreep"
   game <- Game.getGameGlobal
 
   let maybeSpawn = M.lookup "Spawn1" $ Game.spawns game
