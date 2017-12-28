@@ -19,6 +19,7 @@ generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat 
 
 respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
 respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
+
 respondToObservation state UnderCreepCap = { accum: state, value: [SpawnCreep] }
 
 respondToObservation state (Arrived creepName) = updateContext state creepName Nothing tailOrEmptyList
