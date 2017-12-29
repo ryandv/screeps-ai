@@ -7,27 +7,21 @@ import Data.Identity (Identity(..))
 import Data.Maybe (Maybe(..), maybe)
 import Data.StrMap as M
 import Data.Tuple (Tuple(..))
-import Data.Traversable (Accum, foldl, mapAccumL)
+import Data.Traversable (foldl)
 
-import Types (AiState(..), CreepContext(..), CreepState(..), Instruction(..), MyIdentity(..), Observation(..), Point)
+import Types (AiState(..), CreepContext(..), CreepState(..), Instruction(..), Observation(..), Point)
 
-generateInstructions :: (Array Observation) -> AiState -> MyIdentity (Tuple (Array Instruction) AiState)
-generateInstructions observations state = MyIdentity $ Identity $ Tuple (concat $ instructionsAndNextState.value) (instructionsAndNextState.accum) where
+generateInstructions :: (Array Observation) -> AiState -> AiState
+generateInstructions observations oldState = foldl respondToObservation oldState observations
 
-  instructionsAndNextState :: Accum AiState (Array (Array Instruction))
-  instructionsAndNextState = mapAccumL respondToObservation state observations
+respondToObservation :: AiState -> Observation -> AiState
+respondToObservation state CannotSpawnCreep = state
 
-respondToObservation :: AiState -> Observation -> Accum AiState (Array Instruction)
-respondToObservation state CannotSpawnCreep = { accum: state, value: [] }
-
-respondToObservation (AiState oldState) UnderCreepCap =
-  { accum: (AiState
-    { creepContexts: M.alter (const <<< Just $ CreepContext
-      { creepState: Error
-      , creepInstructions: [ SpawnCreep ]
-      }) "Spawn1" oldState.creepContexts
-    })
-  , value: []
+respondToObservation (AiState oldState) UnderCreepCap = AiState
+  { creepContexts: M.alter (const <<< Just $ CreepContext
+    { creepState: Error
+    , creepInstructions: [ SpawnCreep ]
+    }) "Spawn1" oldState.creepContexts
   }
 
 respondToObservation state (Arrived creepName) = updateContext state creepName Nothing tailOrEmptyList
@@ -37,27 +31,24 @@ respondToObservation state (CreepEmpty creepName) = updateContext state creepNam
 respondToObservation state (SourceLocated point) = respondToSourceLocated state point
 respondToObservation state (ControllerIsLow controllerLocation) = respondToControllerIsLow state controllerLocation
 
-respondToControllerIsLow :: AiState -> Point -> Accum AiState (Array Instruction)
+respondToControllerIsLow :: AiState -> Point -> AiState
 respondToControllerIsLow aistate controllerLocation = assignTasks instructCreepToTransferToController Transferring aistate where
 
-  instructCreepToTransferToController :: Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructCreepToTransferToController { accum: state } creepName = updateContext state creepName (Just Error) (const $ [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation])
+  instructCreepToTransferToController :: AiState -> String -> AiState
+  instructCreepToTransferToController oldState creepName = updateContext oldState creepName (Just Error) (const $ [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation])
 
-respondToSourceLocated :: AiState -> Point -> Accum AiState (Array Instruction)
+respondToSourceLocated :: AiState -> Point -> AiState
 respondToSourceLocated aistate point = assignTasks instructCreepToHarvestSource Idle aistate where
 
-  instructCreepToHarvestSource :: Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)
-  instructCreepToHarvestSource { accum: state } creepName = updateContext state creepName (Just Harvesting) (const $ [MoveTo creepName point, HarvestSource creepName point])
+  instructCreepToHarvestSource :: AiState -> String -> AiState
+  instructCreepToHarvestSource oldState creepName = updateContext oldState creepName (Just Harvesting) (const $ [MoveTo creepName point, HarvestSource creepName point])
 
-updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -> Array Instruction) -> Accum AiState (Array Instruction)
-updateContext (AiState state) creepName newState newInstructionGenerator =
-  { accum: (AiState
-    { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
-      { creepState: maybe oldContext.creepState id $ newState
-      , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
-      }) creepName state.creepContexts
-    })
-  , value: []
+updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -> Array Instruction) -> AiState
+updateContext (AiState state) creepName newState newInstructionGenerator = AiState
+  { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
+    { creepState: maybe oldContext.creepState id $ newState
+    , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
+    }) creepName state.creepContexts
   }
 
 tailOrEmptyList :: forall a. Array a -> Array a
@@ -73,11 +64,9 @@ finishTransferEnergy instructions = case head instructions of
                                     Just (TransferEnergyTo _ _) -> tailOrEmptyList $ instructions
                                     _ -> instructions
 
-assignTasks :: (Accum AiState (Array Instruction) -> String -> Accum AiState (Array Instruction)) -> CreepState -> AiState -> Accum AiState (Array Instruction)
+assignTasks :: (AiState -> String -> AiState) -> CreepState -> AiState -> AiState
 assignTasks taskAssigner targetedCreepState (AiState state) =
-  foldl taskAssigner
-        { accum: (AiState state), value: [] }
-        (targetedCreeps targetedCreepState state.creepContexts)
+  foldl taskAssigner (AiState state) (targetedCreeps targetedCreepState state.creepContexts)
 
 targetedCreeps :: CreepState -> M.StrMap CreepContext -> Array String
 targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTargeted <<< getCreepState) <<< lookupCreepContext) $ M.keys creepContexts where

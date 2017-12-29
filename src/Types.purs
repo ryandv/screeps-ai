@@ -179,12 +179,6 @@ data CommandError = UndistinguishedErrors | OutOfRangeError | OutOfEnergyError |
 
 derive instance eqCommandError :: Eq CommandError
 
-newtype MyIdentity a = MyIdentity (Identity a)
-
-instance newtypeIdentity :: Newtype (MyIdentity a) a where
-  wrap a = (MyIdentity (Identity a))
-  unwrap (MyIdentity (Identity a)) = a
-
 instance encodeCreepState :: EncodeJson CreepState where
   encodeJson Idle = fromString "Idle"
   encodeJson Moving = fromString "Moving"

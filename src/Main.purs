@@ -19,24 +19,22 @@ import App.Reports as App.Reports
 import AI.Observations as AI.Observations
 import AI.StateManager as AI.StateManager
 
-import Types (AiState, Instruction, getCreepInstructions)
+import Types (getCreepInstructions)
 import App.Types (BaseScreepsEffects)
 
 main :: Eff BaseScreepsEffects Unit
 main = do
+  state <- App.Memory.getStateFromMemory
   reports <- App.Reports.generateReports
+
   let reportObservations = AI.Observations.analyzeReports reports
   log $ show reportObservations
 
-  state <- App.Memory.getStateFromMemory
-
-  instructionQueue <- App.Memory.getInstructionQueue
   let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ getCreepInstructions state
-  instructionResultObservations <- catMaybes <$> traverse App.Execution.executeInstruction (instructionQueue <> creepInstructionQueue)
 
-  let instructionsAndNextState = (unwrap $ runStateT (StateT (AI.StateManager.generateInstructions (reportObservations <> instructionResultObservations))) state) :: Tuple (Array Instruction) AiState
+  instructionResultObservations <- catMaybes <$> traverse App.Execution.executeInstruction creepInstructionQueue
 
-  App.Memory.writeStateToMemory $ snd instructionsAndNextState
-  App.Memory.writeInstructionsToQueue $ fst instructionsAndNextState
+  let nextState = AI.StateManager.generateInstructions (reportObservations <> instructionResultObservations) state
+  App.Memory.writeStateToMemory $ nextState
 
   pure unit
