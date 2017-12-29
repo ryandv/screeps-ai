@@ -17,12 +17,6 @@ import Screeps.Memory as Memory
 import App.Types
 import Types
 
-getInstructionQueue :: Eff BaseScreepsEffects (Array Instruction)
-getInstructionQueue = do
-  mem <- Memory.getMemoryGlobal
-  instructionQueue <- (Memory.get mem "instructionQueue") :: forall e. (EffScreepsCommand e) (Either String (Array Instruction))
-  pure $ either (const []) id instructionQueue
-
 mergeNewlySpawnedCreep :: M.StrMap CreepContext -> String -> M.StrMap CreepContext
 mergeNewlySpawnedCreep creepContexts creepName = M.alter (maybe (Just $ CreepContext { creepState: Idle , creepInstructions: [] }) Just) creepName creepContexts
 
@@ -49,8 +43,3 @@ writeStateToMemory :: AiState -> Eff BaseScreepsEffects Unit
 writeStateToMemory state = do
   mem <- Memory.getMemoryGlobal
   Memory.set mem "aiState" (encodeJson state)
-
-writeInstructionsToQueue :: (Array Instruction) -> Eff BaseScreepsEffects Unit
-writeInstructionsToQueue instructions = do
-  mem <- Memory.getMemoryGlobal
-  Memory.set mem "instructionQueue" (encodeJson instructions)
