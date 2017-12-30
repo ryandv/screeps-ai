@@ -9,7 +9,7 @@ import Control.Monad.State.Trans (StateT(..), runStateT)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Newtype (unwrap)
 import Data.StrMap as M
-import Data.Tuple (Tuple)
+import Data.Tuple (Tuple(..))
 
 import Test.Spec
 import Test.Spec.Assertions
@@ -34,6 +34,31 @@ spec = do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Harvesting)
           processInstructionsFor "Alice" nextState `shouldEqual` [ MoveTo "Alice" (Point 0 0), HarvestSource "Alice" (Point 0 0) ]
+
+      it "instructs multiple Harvesting Creeps to start harvesting once they have Arrived at their destination while they are empty" $ let
+        currentState = AiState
+          { creepContexts: M.fromFoldable $
+            [ Tuple "Alice" $ ProcessContext
+              { processState: Harvesting
+              , processInstructions: [ MoveTo "Alice" (Point 0 0), HarvestSource "Alice" (Point 0 0) ]
+              }
+            , Tuple "Bob" $ ProcessContext
+              { processState: Harvesting
+              , processInstructions: [ MoveTo "Bob" (Point 0 0), HarvestSource "Bob" (Point 0 0) ]
+              }
+            ]
+          }
+        observations = M.fromFoldable $
+          [ Tuple "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty "Alice", Arrived "Alice" ]
+          , Tuple "Bob" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty "Bob", Arrived "Bob" ]
+          ]
+        nextState = generateInstructions observations currentState in do
+
+          processStateFor "Alice" nextState `shouldEqual` (Just Harvesting)
+          processInstructionsFor "Alice" nextState `shouldEqual` [ HarvestSource "Alice" (Point 0 0) ]
+
+          processStateFor "Bob" nextState `shouldEqual` (Just Harvesting)
+          processInstructionsFor "Bob" nextState `shouldEqual` [ HarvestSource "Bob" (Point 0 0) ]
 
       it "instructs Harvesting Creeps to start harvesting once they have Arrived at their destination" $ let
         currentState = singletonState "Alice" Harvesting [ MoveTo "Alice" (Point 0 0), HarvestSource "Alice" (Point 0 0) ]
