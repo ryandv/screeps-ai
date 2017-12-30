@@ -125,41 +125,41 @@ instance decodeInstruction :: DecodeJson Instruction where
 data CreepState = Idle | Moving | Harvesting | Transferring | Error
 
 data AiState = AiState
-  { creepContexts :: (M.StrMap CreepContext)
+  { creepContexts :: (M.StrMap ProcessContext)
   }
 
-instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap CreepContext) } where
+instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap ProcessContext) } where
   wrap state = AiState state
   unwrap (AiState state) = state
 
-data CreepContext = CreepContext
+data ProcessContext = ProcessContext
   { creepState :: CreepState
   , creepInstructions :: (Array Instruction)
   }
 
-instance newtypeCreepContext :: Newtype CreepContext { creepState :: CreepState , creepInstructions :: (Array Instruction) } where
-  wrap ctx = CreepContext ctx
-  unwrap (CreepContext ctx) = ctx
+instance newtypeProcessContext :: Newtype ProcessContext { creepState :: CreepState , creepInstructions :: (Array Instruction) } where
+  wrap ctx = ProcessContext ctx
+  unwrap (ProcessContext ctx) = ctx
 
 getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
-getCreepInstructions (AiState state) = map (\(CreepContext context) -> context.creepInstructions) state.creepContexts
+getCreepInstructions (AiState state) = map (\(ProcessContext context) -> context.creepInstructions) state.creepContexts
 
 instance encodeAiState :: EncodeJson AiState where
   encodeJson (AiState { creepContexts: creepContexts }) = fromObject $ M.fromFoldable
     [ Tuple "creepContexts" $ encodeJson creepContexts
     ]
 
-instance encodeCreepContext :: EncodeJson CreepContext where
-  encodeJson (CreepContext { creepState: creepState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+instance encodeProcessContext :: EncodeJson ProcessContext where
+  encodeJson (ProcessContext { creepState: creepState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
     [ Tuple "creepState" $ encodeJson creepState
     , Tuple "creepInstructions" $ encodeJson creepInstructions
     ]
 
-instance decodeCreepContext :: DecodeJson CreepContext where
+instance decodeProcessContext :: DecodeJson ProcessContext where
   decodeJson json = do
     creepState <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepState"
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
-    pure $ CreepContext { creepState: creepState, creepInstructions: creepInstructions }
+    pure $ ProcessContext { creepState: creepState, creepInstructions: creepInstructions }
 
 instance decodeAiState :: DecodeJson AiState where
   decodeJson json = do

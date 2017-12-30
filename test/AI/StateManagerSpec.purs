@@ -84,14 +84,14 @@ spec = do
           creepInstructionsFor "Alice" nextState `shouldEqual` []
 
 creepInstructionsFor :: String -> AiState -> Array Instruction
-creepInstructionsFor creepName state = maybe [] (\(CreepContext creepContext) -> creepContext.creepInstructions) (M.lookup creepName (unwrap state).creepContexts)
+creepInstructionsFor creepName state = maybe [] (\(ProcessContext creepContext) -> creepContext.creepInstructions) (M.lookup creepName (unwrap state).creepContexts)
 
 creepStateFor :: String -> AiState -> Maybe CreepState
-creepStateFor creepName state = map (\(CreepContext creepContext) -> creepContext.creepState) (M.lookup creepName (unwrap state).creepContexts)
+creepStateFor creepName state = map (\(ProcessContext creepContext) -> creepContext.creepState) (M.lookup creepName (unwrap state).creepContexts)
 
 singletonState :: String -> CreepState -> Array Instruction -> AiState
 singletonState creepName creepState creepInstructions = AiState
-  { creepContexts: M.singleton creepName $ CreepContext
+  { creepContexts: M.singleton creepName $ ProcessContext
     { creepState: creepState
     , creepInstructions: creepInstructions
     }

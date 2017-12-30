@@ -17,10 +17,10 @@ import Screeps.Memory as Memory
 import App.Types
 import Types
 
-mergeNewlySpawnedCreep :: M.StrMap CreepContext -> String -> M.StrMap CreepContext
-mergeNewlySpawnedCreep creepContexts creepName = M.alter (maybe (Just $ CreepContext { creepState: Idle , creepInstructions: [] }) Just) creepName creepContexts
+mergeNewlySpawnedCreep :: M.StrMap ProcessContext -> String -> M.StrMap ProcessContext
+mergeNewlySpawnedCreep creepContexts creepName = M.alter (maybe (Just $ ProcessContext { creepState: Idle , creepInstructions: [] }) Just) creepName creepContexts
 
-pruneDeceasedCreep :: Array String -> M.StrMap CreepContext -> String -> M.StrMap CreepContext
+pruneDeceasedCreep :: Array String -> M.StrMap ProcessContext -> String -> M.StrMap ProcessContext
 pruneDeceasedCreep creeps creepContexts creepName = M.alter (maybe Nothing (\creepContext -> if creepName `elem` (cons "Spawn1" creeps) then Just creepContext else Nothing)) creepName creepContexts
 
 getStateFromMemory :: Eff BaseScreepsEffects AiState
@@ -33,7 +33,7 @@ getStateFromMemory = do
 
   -- a bit hacky - merge in newly spawned Creeps, prune deceased ones
 
-  pure $ either (const $ AiState { creepContexts: map (const $ CreepContext { creepState: Idle , creepInstructions: [] }) creeps })
+  pure $ either (const $ AiState { creepContexts: map (const $ ProcessContext { creepState: Idle , creepInstructions: [] }) creeps })
                 (\(AiState state) -> (AiState state
                   { creepContexts = foldl (pruneDeceasedCreep (M.keys creeps)) (foldl mergeNewlySpawnedCreep state.creepContexts $ (M.keys creeps)) $ M.keys state.creepContexts
                   })) aiState

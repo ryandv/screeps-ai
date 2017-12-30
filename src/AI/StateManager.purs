@@ -9,7 +9,7 @@ import Data.StrMap as M
 import Data.Tuple (Tuple(..))
 import Data.Traversable (foldl)
 
-import Types (AiState(..), CreepContext(..), CreepState(..), Instruction(..), Observation(..), Point)
+import Types (AiState(..), ProcessContext(..), CreepState(..), Instruction(..), Observation(..), Point)
 
 generateInstructions :: M.StrMap (Array Observation) -> AiState -> AiState
 generateInstructions observations oldState = M.fold respondToObservations oldState observations
@@ -21,7 +21,7 @@ respondToObservation :: AiState -> Observation -> AiState
 respondToObservation state CannotSpawnCreep = state
 
 respondToObservation (AiState oldState) UnderCreepCap = AiState
-  { creepContexts: M.alter (const <<< Just $ CreepContext
+  { creepContexts: M.alter (const <<< Just $ ProcessContext
     { creepState: Error
     , creepInstructions: [ SpawnCreep ]
     }) "Spawn1" oldState.creepContexts
@@ -48,7 +48,7 @@ respondToSourceLocated aistate point = assignTasks instructCreepToHarvestSource 
 
 updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -> Array Instruction) -> AiState
 updateContext (AiState state) creepName newState newInstructionGenerator = AiState
-  { creepContexts: M.update (\(CreepContext oldContext) -> Just $ CreepContext
+  { creepContexts: M.update (\(ProcessContext oldContext) -> Just $ ProcessContext
     { creepState: maybe oldContext.creepState id $ newState
     , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
     }) creepName state.creepContexts
@@ -71,10 +71,10 @@ assignTasks :: (AiState -> String -> AiState) -> CreepState -> AiState -> AiStat
 assignTasks taskAssigner targetedCreepState (AiState state) =
   foldl taskAssigner (AiState state) (targetedCreeps targetedCreepState state.creepContexts)
 
-targetedCreeps :: CreepState -> M.StrMap CreepContext -> Array String
-targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTargeted <<< getCreepState) <<< lookupCreepContext) $ M.keys creepContexts where
+targetedCreeps :: CreepState -> M.StrMap ProcessContext -> Array String
+targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTargeted <<< getCreepState) <<< lookupProcessContext) $ M.keys creepContexts where
 
   creepNames = M.keys creepContexts
   isCreepTargeted = ((==) targetedCreepState)
-  getCreepState (CreepContext context) = context.creepState
-  lookupCreepContext = (flip M.lookup) creepContexts
+  getCreepState (ProcessContext context) = context.creepState
+  lookupProcessContext = (flip M.lookup) creepContexts
