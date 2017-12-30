@@ -26,8 +26,8 @@ analyzeReports (Reports
 
     creepObservations = M.mapWithKey (\creepName creepCapacity ->
       catMaybes (
-        [ if (fst creepCapacity) >= (snd creepCapacity) then Just $ CreepFull creepName else Nothing ]
-          <> [ if (fst creepCapacity) == 0 then Just $ CreepEmpty creepName else Nothing ]
+        [ if (fst creepCapacity) >= (snd creepCapacity) then Just CreepFull else Nothing ]
+          <> [ if (fst creepCapacity) == 0 then Just CreepEmpty else Nothing ]
           <> [ if isCurrentlyMoving (Tuple creepName <<< maybe [] id $ M.lookup creepName processInstructions) then toArrivedObservation creepLocations (Tuple creepName <<< maybe [] id $ M.lookup creepName processInstructions) else Nothing ]
       )
     ) creepCapacities
@@ -60,15 +60,15 @@ isCurrentlyMoving instructions = case head (snd instructions) of
                                         _ -> false
 
 toArrivedObservation :: M.StrMap Point -> Tuple String (Array Instruction) -> Maybe Observation
-toArrivedObservation creepLocations processInstructions | hasArrivedAtDestination creepLocations processInstructions = Just <<< Arrived $ fst processInstructions
-                                                      | otherwise = Nothing
+toArrivedObservation creepLocations processInstructions | hasArrivedAtDestination creepLocations processInstructions = Just $ Arrived
+                                                        | otherwise = Nothing
 
 creepFull :: M.StrMap (Tuple Int Int) -> Array Observation
 creepFull creepCapacities = map toObservation <<< filter isFull $ unfoldStrMap creepCapacities where
   isFull (Tuple _ (Tuple carrying capacity)) = carrying >= capacity
-  toObservation (Tuple creepName _) = CreepFull creepName
+  toObservation (Tuple _ _) = CreepFull
 
 creepEmpty :: M.StrMap (Tuple Int Int) -> Array Observation
 creepEmpty creepCapacities = map toObservation <<< filter isEmpty $ unfoldStrMap creepCapacities where
   isEmpty (Tuple creepName (Tuple carrying _)) = carrying == 0
-  toObservation (Tuple creepName _) = CreepEmpty creepName
+  toObservation (Tuple _ _) = CreepEmpty

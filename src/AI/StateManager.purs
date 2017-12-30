@@ -28,9 +28,9 @@ respondToObservation creepName (AiState oldState) UnderCreepCap = AiState
     }) "Spawn1" oldState.creepContexts
   }
 
-respondToObservation creepName state (Arrived _) = updateContext state creepName Nothing tailOrEmptyList
-respondToObservation creepName state (CreepFull _) = updateContext state creepName (Just Transferring) finishHarvest
-respondToObservation creepName (AiState state) (CreepEmpty _) = AiState $
+respondToObservation creepName state Arrived = updateContext state creepName Nothing tailOrEmptyList
+respondToObservation creepName state CreepFull = updateContext state creepName (Just Transferring) finishHarvest
+respondToObservation creepName (AiState state) CreepEmpty = AiState $
   { creepContexts: M.update (\(ProcessContext oldContext) -> case (head (oldContext.processInstructions)) of
                                                                   Just (TransferEnergyTo _ _) -> Just $ ProcessContext
                                                                     { processState: Idle
@@ -79,11 +79,3 @@ finishTransferEnergy instructions = case head instructions of
 assignTasks :: (AiState -> String -> AiState) -> ProcessState -> String -> AiState -> AiState
 assignTasks taskAssigner targetedProcessState creepName state | maybe false (\(ProcessContext processContext) -> processContext.processState == targetedProcessState) (M.lookup creepName (unwrap state).creepContexts) = taskAssigner state creepName
                                                               | true = state
-
-targetedCreeps :: ProcessState -> M.StrMap ProcessContext -> Array String
-targetedCreeps targetedProcessState creepContexts = filter (maybe false (isCreepTargeted <<< getProcessState) <<< lookupProcessContext) $ M.keys creepContexts where
-
-  creepNames = M.keys creepContexts
-  isCreepTargeted = ((==) targetedProcessState)
-  getProcessState (ProcessContext context) = context.processState
-  lookupProcessContext = (flip M.lookup) creepContexts

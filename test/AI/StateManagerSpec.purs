@@ -49,8 +49,8 @@ spec = do
             ]
           }
         observations = M.fromFoldable $
-          [ Tuple "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty "Alice", Arrived "Alice" ]
-          , Tuple "Bob" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty "Bob", Arrived "Bob" ]
+          [ Tuple "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty,  Arrived ]
+          , Tuple "Bob" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15, CreepEmpty,  Arrived ]
           ]
         nextState = generateInstructions observations currentState in do
 
@@ -62,7 +62,7 @@ spec = do
 
       it "instructs Harvesting Creeps to start harvesting once they have Arrived at their destination" $ let
         currentState = singletonState "Alice" Harvesting [ MoveTo "Alice" (Point 0 0), HarvestSource "Alice" (Point 0 0) ]
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , Arrived "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , Arrived ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Harvesting)
@@ -70,7 +70,7 @@ spec = do
 
       it "instructs Harvesting Creeps to stop harvesting once they are full" $ let
         currentState = singletonState "Alice" Harvesting [ HarvestSource "Alice" (Point 0 0) ]
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Transferring)
@@ -78,7 +78,7 @@ spec = do
 
       it "instructs Transferring Creeps to move to the Room Controller" $ let
         currentState = singletonState "Alice" Transferring []
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Transferring)
@@ -86,7 +86,7 @@ spec = do
 
       it "instructs Transferring Creeps that have Arrived at the Room Controller to TransferEnergyTo it" $ let
         currentState = singletonState "Alice" Transferring [ MoveTo "Alice" (Point 22 15), TransferEnergyTo "Alice" (Point 22 15) ]
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice", Arrived "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull, Arrived ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Transferring)
@@ -94,7 +94,7 @@ spec = do
 
       it "(legacy) enters an unnecessary intermediate state that does nothing" $ let
         currentState = singletonState "Alice" Transferring [ TransferEnergyTo "Alice" (Point 22 15) ]
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepFull ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Transferring)
@@ -102,7 +102,7 @@ spec = do
 
       it "instructs Creeps that have transferred all their energy to become Idle" $ let
         currentState = singletonState "Alice" Error [ TransferEnergyTo "Alice" (Point 22 15) ] -- hack, should rename to the real Transferring - the others are TransferringEnRoute or something 
-        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepEmpty "Alice" ]
+        observations = M.singleton "Alice" [ SourceLocated $ Point 0 0 , SourceLocated $ Point 1 1 , ControllerIsLow $ Point 22 15 , CreepEmpty ]
         nextState = generateInstructions observations currentState in do
 
           processStateFor "Alice" nextState `shouldEqual` (Just Idle)

@@ -46,15 +46,15 @@ data Reports = Reports
   , controllerLocation :: Point
   }
 
-data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived String | CreepFull String | CreepEmpty String | ControllerIsLow Point
+data Observation = UnderCreepCap | CannotSpawnCreep | SourceLocated Point | Arrived | CreepFull | CreepEmpty | ControllerIsLow Point
 
 instance showObservation :: Show Observation where
   show UnderCreepCap = "UnderCreepCap"
   show CannotSpawnCreep = "CannotSpawnCreep"
   show (SourceLocated pt) = "SourceLocated " <> show pt
-  show (Arrived creepName) = "Arrived " <> creepName
-  show (CreepFull creepName) = "CreepFull " <> creepName
-  show (CreepEmpty creepName) = "CreepEmpty " <> creepName
+  show Arrived = "Arrived "
+  show CreepFull = "CreepFull "
+  show CreepEmpty = "CreepEmpty "
   show (ControllerIsLow pt) = "ControllerIsLow " <> show pt
 
 data Instruction = SpawnCreep | DoNothing String | MoveTo String Point | HarvestSource String Point | TransferEnergyTo String Point
