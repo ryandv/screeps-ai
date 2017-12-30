@@ -11,8 +11,11 @@ import Data.Traversable (foldl)
 
 import Types (AiState(..), CreepContext(..), CreepState(..), Instruction(..), Observation(..), Point)
 
-generateInstructions :: (Array Observation) -> AiState -> AiState
-generateInstructions observations oldState = foldl respondToObservation oldState observations
+generateInstructions :: M.StrMap (Array Observation) -> AiState -> AiState
+generateInstructions observations oldState = M.fold respondToObservations oldState observations
+
+respondToObservations :: AiState -> String -> (Array Observation) -> AiState
+respondToObservations oldState creepName observations = foldl respondToObservation oldState observations
 
 respondToObservation :: AiState -> Observation -> AiState
 respondToObservation state CannotSpawnCreep = state

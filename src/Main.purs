@@ -1,12 +1,14 @@
 module Main where
 
-import Prelude (Unit, bind, discard, map, pure, show, unit, ($), (<$>), (<>))
+import Prelude (Unit, bind, discard, id, map, pure, show, unit, ($), (<$>), (<>), (<<<))
 
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (log)
 import Control.Monad.State.Trans (StateT(..), runStateT)
 
-import Data.Array (catMaybes, head, (:))
+import Data.Array (catMaybes, cons, head, (:))
+import Data.Foldable (foldl)
+import Data.Maybe (Maybe(..), maybe)
 import Data.Newtype (unwrap)
 import Data.StrMap as M
 import Data.Tuple (Tuple, fst, snd)
@@ -19,7 +21,7 @@ import App.Reports as App.Reports
 import AI.Observations as AI.Observations
 import AI.StateManager as AI.StateManager
 
-import Types (getCreepInstructions)
+import Types (getCreepInstructions, Instruction)
 import App.Types (BaseScreepsEffects)
 
 main :: Eff BaseScreepsEffects Unit
@@ -30,11 +32,13 @@ main = do
   let reportObservations = AI.Observations.analyzeReports reports
   log $ show reportObservations
 
-  let creepInstructionQueue = catMaybes $ map head $ M.fold (\acc key val -> val:acc) [] $ getCreepInstructions state
+  let instructions = M.fold (\acc creepName maybeInstruction -> maybe acc (\instruction -> M.insert creepName instruction acc) maybeInstruction) M.empty $ (map head $ getCreepInstructions state)
 
-  instructionResultObservations <- catMaybes <$> traverse App.Execution.executeInstruction creepInstructionQueue
+  instructionResultObservations <- traverse App.Execution.executeInstruction instructions
 
-  let nextState = AI.StateManager.generateInstructions (reportObservations <> instructionResultObservations) state
+  let allObservations = M.fold (\acc creepName maybeObservation -> maybe acc (\observation -> M.alter (maybe (Just [observation]) (Just <<< cons observation)) creepName acc) maybeObservation) reportObservations instructionResultObservations
+
+  let nextState = AI.StateManager.generateInstructions allObservations state
   App.Memory.writeStateToMemory $ nextState
 
   pure unit

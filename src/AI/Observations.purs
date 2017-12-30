@@ -2,7 +2,8 @@ module AI.Observations(analyzeReports) where
 
 import Prelude (id, map, otherwise, ($), (<), (<<<), (<>), (==), (>=))
 
-import Data.Array (catMaybes, filter, head, (:))
+import Data.Array (catMaybes, cons, filter, head, (:))
+import Data.Foldable (foldr, foldl)
 import Data.Maybe (Maybe(..), maybe)
 import Data.StrMap as M
 import Data.Tuple (Tuple(..), fst, snd)
@@ -12,7 +13,7 @@ import Types (Instruction(..), Observation(..), Point(..), Reports(..), chebyshe
 unfoldStrMap :: forall a. M.StrMap a -> Array (Tuple String a)
 unfoldStrMap = M.fold (\acc key val -> (Tuple key val):acc) []
 
-analyzeReports :: Reports -> Array Observation
+analyzeReports :: Reports -> M.StrMap (Array Observation)
 analyzeReports (Reports
   { numberOfCreeps: numberOfCreeps
   , creepCapacities: creepCapacities
@@ -21,13 +22,24 @@ analyzeReports (Reports
   , creepLocations: creepLocations
   , creepInstructions: creepInstructions
   , controllerLocation: controllerLocation
-  }) = catMaybes (
-    [ if numberOfCreeps < 10 then (Just UnderCreepCap) else Nothing ]
-      <> map (Just <<< SourceLocated) sourceLocations
-      <> [ if ticksToDowngrade < 20000 then Just (ControllerIsLow controllerLocation) else Nothing ]
-      <> (map Just $ creepFull creepCapacities)
-      <> (map Just $ creepEmpty creepCapacities)
-      <> (map (toArrivedObservation creepLocations) (filter isCurrentlyMoving $ unfoldStrMap creepInstructions)))
+  }) = foldr ($) creepObservations globalObservations where
+
+    creepObservations = M.mapWithKey (\creepName creepCapacity ->
+      catMaybes (
+        [ if (fst creepCapacity) >= (snd creepCapacity) then Just $ CreepFull creepName else Nothing ]
+          <> [ if (fst creepCapacity) == 0 then Just $ CreepEmpty creepName else Nothing ]
+          <> [ if isCurrentlyMoving (Tuple creepName <<< maybe [] id $ M.lookup creepName creepInstructions) then toArrivedObservation creepLocations (Tuple creepName <<< maybe [] id $ M.lookup creepName creepInstructions) else Nothing ]
+      )
+    ) creepCapacities
+
+    globalObservations :: Array (M.StrMap (Array Observation) -> M.StrMap (Array Observation))
+    globalObservations =
+      [ (\observations -> foldl (\acc sourceLocation -> map (cons $ (SourceLocated sourceLocation)) acc) observations sourceLocations)
+      , (\observations -> if ticksToDowngrade < 20000 then map (cons $ (ControllerIsLow controllerLocation)) observations else observations)
+      , (\observations -> if numberOfCreeps < 10 then M.alter (maybe (Just [UnderCreepCap]) (Just <<< cons UnderCreepCap)) "Spawn1" observations else observations)
+      ]
+
+-- sourcelocated controllerislow undercreepcap
 
 hasArrivedAtDestination :: M.StrMap Point -> Tuple String (Array Instruction) -> Boolean
 hasArrivedAtDestination creepLocations (Tuple creepName instructions) = 1 >= (chebyshevDistance hackCurrentPositionOrOrigin hackDestinationOrOrigin)
