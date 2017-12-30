@@ -49,7 +49,7 @@ generateReports = do
                         let roomPos = (RoomObject.pos source) in
                             Point (RoomPosition.x roomPos) (RoomPosition.y roomPos)) sources
     , creepLocations: map (\creep -> Point (RoomPosition.x (RoomObject.pos creep)) (RoomPosition.y (RoomObject.pos creep))) creeps
-    , creepInstructions: getCreepInstructions (either (const $ AiState { creepContexts: M.empty }) id aiState)
+    , processInstructions: getCreepInstructions (either (const $ AiState { creepContexts: M.empty }) id aiState)
     , controllerLocation: maybe (Point 0 0) (\spawn -> case Room.controller $ RoomObject.room spawn of
                                 Just controller -> (Point (RoomPosition.x (RoomObject.pos controller)) (RoomPosition.y (RoomObject.pos controller)))
                                 Nothing -> (Point 0 0)) maybeSpawn

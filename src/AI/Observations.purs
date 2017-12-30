@@ -20,7 +20,7 @@ analyzeReports (Reports
   , ticksToDowngrade: ticksToDowngrade
   , sourceLocations: sourceLocations
   , creepLocations: creepLocations
-  , creepInstructions: creepInstructions
+  , processInstructions: processInstructions
   , controllerLocation: controllerLocation
   }) = foldr ($) creepObservations globalObservations where
 
@@ -28,7 +28,7 @@ analyzeReports (Reports
       catMaybes (
         [ if (fst creepCapacity) >= (snd creepCapacity) then Just $ CreepFull creepName else Nothing ]
           <> [ if (fst creepCapacity) == 0 then Just $ CreepEmpty creepName else Nothing ]
-          <> [ if isCurrentlyMoving (Tuple creepName <<< maybe [] id $ M.lookup creepName creepInstructions) then toArrivedObservation creepLocations (Tuple creepName <<< maybe [] id $ M.lookup creepName creepInstructions) else Nothing ]
+          <> [ if isCurrentlyMoving (Tuple creepName <<< maybe [] id $ M.lookup creepName processInstructions) then toArrivedObservation creepLocations (Tuple creepName <<< maybe [] id $ M.lookup creepName processInstructions) else Nothing ]
       )
     ) creepCapacities
 
@@ -60,7 +60,7 @@ isCurrentlyMoving instructions = case head (snd instructions) of
                                         _ -> false
 
 toArrivedObservation :: M.StrMap Point -> Tuple String (Array Instruction) -> Maybe Observation
-toArrivedObservation creepLocations creepInstructions | hasArrivedAtDestination creepLocations creepInstructions = Just <<< Arrived $ fst creepInstructions
+toArrivedObservation creepLocations processInstructions | hasArrivedAtDestination creepLocations processInstructions = Just <<< Arrived $ fst processInstructions
                                                       | otherwise = Nothing
 
 creepFull :: M.StrMap (Tuple Int Int) -> Array Observation

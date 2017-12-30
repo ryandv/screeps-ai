@@ -23,7 +23,7 @@ respondToObservation state CannotSpawnCreep = state
 respondToObservation (AiState oldState) UnderCreepCap = AiState
   { creepContexts: M.alter (const <<< Just $ ProcessContext
     { processState: Error
-    , creepInstructions: [ SpawnCreep ]
+    , processInstructions: [ SpawnCreep ]
     }) "Spawn1" oldState.creepContexts
   }
 
@@ -50,7 +50,7 @@ updateContext :: AiState -> String -> (Maybe ProcessState) -> (Array Instruction
 updateContext (AiState state) creepName newState newInstructionGenerator = AiState
   { creepContexts: M.update (\(ProcessContext oldContext) -> Just $ ProcessContext
     { processState: maybe oldContext.processState id $ newState
-    , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
+    , processInstructions: newInstructionGenerator $ oldContext.processInstructions
     }) creepName state.creepContexts
   }
 

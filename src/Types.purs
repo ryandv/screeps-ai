@@ -42,7 +42,7 @@ data Reports = Reports
   , ticksToDowngrade :: Int
   , sourceLocations :: Array Point
   , creepLocations :: M.StrMap Point
-  , creepInstructions :: M.StrMap (Array Instruction)
+  , processInstructions :: M.StrMap (Array Instruction)
   , controllerLocation :: Point
   }
 
@@ -134,15 +134,15 @@ instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap ProcessC
 
 data ProcessContext = ProcessContext
   { processState :: ProcessState
-  , creepInstructions :: (Array Instruction)
+  , processInstructions :: (Array Instruction)
   }
 
-instance newtypeProcessContext :: Newtype ProcessContext { processState :: ProcessState , creepInstructions :: (Array Instruction) } where
+instance newtypeProcessContext :: Newtype ProcessContext { processState :: ProcessState , processInstructions :: (Array Instruction) } where
   wrap ctx = ProcessContext ctx
   unwrap (ProcessContext ctx) = ctx
 
 getCreepInstructions :: AiState -> M.StrMap (Array Instruction)
-getCreepInstructions (AiState state) = map (\(ProcessContext context) -> context.creepInstructions) state.creepContexts
+getCreepInstructions (AiState state) = map (\(ProcessContext context) -> context.processInstructions) state.creepContexts
 
 instance encodeAiState :: EncodeJson AiState where
   encodeJson (AiState { creepContexts: creepContexts }) = fromObject $ M.fromFoldable
@@ -150,16 +150,16 @@ instance encodeAiState :: EncodeJson AiState where
     ]
 
 instance encodeProcessContext :: EncodeJson ProcessContext where
-  encodeJson (ProcessContext { processState: processState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+  encodeJson (ProcessContext { processState: processState, processInstructions: processInstructions }) = fromObject $ M.fromFoldable
     [ Tuple "processState" $ encodeJson processState
-    , Tuple "creepInstructions" $ encodeJson creepInstructions
+    , Tuple "processInstructions" $ encodeJson processInstructions
     ]
 
 instance decodeProcessContext :: DecodeJson ProcessContext where
   decodeJson json = do
     processState <- getField (maybe (M.fromFoldable []) id (toObject json)) "processState"
-    creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
-    pure $ ProcessContext { processState: processState, creepInstructions: creepInstructions }
+    processInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "processInstructions"
+    pure $ ProcessContext { processState: processState, processInstructions: processInstructions }
 
 instance decodeAiState :: DecodeJson AiState where
   decodeJson json = do
