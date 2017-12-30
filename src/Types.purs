@@ -122,7 +122,7 @@ instance decodeInstruction :: DecodeJson Instruction where
                                      (Right _) -> Right $ DoNothing ""
                                      (Left e) -> Left e
 
-data CreepState = Idle | Moving | Harvesting | Transferring | Error
+data ProcessState = Idle | Moving | Harvesting | Transferring | Error
 
 data AiState = AiState
   { creepContexts :: (M.StrMap ProcessContext)
@@ -133,11 +133,11 @@ instance newtypeAiState :: Newtype AiState { creepContexts :: (M.StrMap ProcessC
   unwrap (AiState state) = state
 
 data ProcessContext = ProcessContext
-  { creepState :: CreepState
+  { processState :: ProcessState
   , creepInstructions :: (Array Instruction)
   }
 
-instance newtypeProcessContext :: Newtype ProcessContext { creepState :: CreepState , creepInstructions :: (Array Instruction) } where
+instance newtypeProcessContext :: Newtype ProcessContext { processState :: ProcessState , creepInstructions :: (Array Instruction) } where
   wrap ctx = ProcessContext ctx
   unwrap (ProcessContext ctx) = ctx
 
@@ -150,46 +150,46 @@ instance encodeAiState :: EncodeJson AiState where
     ]
 
 instance encodeProcessContext :: EncodeJson ProcessContext where
-  encodeJson (ProcessContext { creepState: creepState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
-    [ Tuple "creepState" $ encodeJson creepState
+  encodeJson (ProcessContext { processState: processState, creepInstructions: creepInstructions }) = fromObject $ M.fromFoldable
+    [ Tuple "processState" $ encodeJson processState
     , Tuple "creepInstructions" $ encodeJson creepInstructions
     ]
 
 instance decodeProcessContext :: DecodeJson ProcessContext where
   decodeJson json = do
-    creepState <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepState"
+    processState <- getField (maybe (M.fromFoldable []) id (toObject json)) "processState"
     creepInstructions <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepInstructions"
-    pure $ ProcessContext { creepState: creepState, creepInstructions: creepInstructions }
+    pure $ ProcessContext { processState: processState, creepInstructions: creepInstructions }
 
 instance decodeAiState :: DecodeJson AiState where
   decodeJson json = do
     creepContexts <- getField (maybe (M.fromFoldable []) id (toObject json)) "creepContexts"
     pure $ AiState { creepContexts: creepContexts }
 
-instance showCreepState :: Show CreepState where
+instance showProcessState :: Show ProcessState where
   show Idle = "Idle"
   show Moving = "Moving"
   show Harvesting = "Harvesting"
   show Transferring = "Transferring"
   show Error = "Error"
 
-derive instance eqCreepState :: Eq CreepState
+derive instance eqProcessState :: Eq ProcessState
 
 data CommandError = UndistinguishedErrors | OutOfRangeError | OutOfEnergyError | OutOfResourcesError
 
 derive instance eqCommandError :: Eq CommandError
 
-instance encodeCreepState :: EncodeJson CreepState where
+instance encodeProcessState :: EncodeJson ProcessState where
   encodeJson Idle = fromString "Idle"
   encodeJson Moving = fromString "Moving"
   encodeJson Harvesting = fromString "Harvesting"
   encodeJson Transferring = fromString "Transferring"
   encodeJson Error = fromString "Error"
 
-instance decodeCreepState :: DecodeJson CreepState where
+instance decodeProcessState :: DecodeJson ProcessState where
   decodeJson j | toString j == Just "Idle" = Right Idle
                | toString j == Just "Moving" = Right Moving
                | toString j == Just "Harvesting" = Right Harvesting
                | toString j == Just "Transferring" = Right Transferring
                | toString j == Just "Error" = Right Error
-               | otherwise = Left "Failed to parse creepState"
+               | otherwise = Left "Failed to parse processState"

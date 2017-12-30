@@ -9,7 +9,7 @@ import Data.StrMap as M
 import Data.Tuple (Tuple(..))
 import Data.Traversable (foldl)
 
-import Types (AiState(..), ProcessContext(..), CreepState(..), Instruction(..), Observation(..), Point)
+import Types (AiState(..), ProcessContext(..), ProcessState(..), Instruction(..), Observation(..), Point)
 
 generateInstructions :: M.StrMap (Array Observation) -> AiState -> AiState
 generateInstructions observations oldState = M.fold respondToObservations oldState observations
@@ -22,7 +22,7 @@ respondToObservation state CannotSpawnCreep = state
 
 respondToObservation (AiState oldState) UnderCreepCap = AiState
   { creepContexts: M.alter (const <<< Just $ ProcessContext
-    { creepState: Error
+    { processState: Error
     , creepInstructions: [ SpawnCreep ]
     }) "Spawn1" oldState.creepContexts
   }
@@ -46,10 +46,10 @@ respondToSourceLocated aistate point = assignTasks instructCreepToHarvestSource 
   instructCreepToHarvestSource :: AiState -> String -> AiState
   instructCreepToHarvestSource oldState creepName = updateContext oldState creepName (Just Harvesting) (const $ [MoveTo creepName point, HarvestSource creepName point])
 
-updateContext :: AiState -> String -> (Maybe CreepState) -> (Array Instruction -> Array Instruction) -> AiState
+updateContext :: AiState -> String -> (Maybe ProcessState) -> (Array Instruction -> Array Instruction) -> AiState
 updateContext (AiState state) creepName newState newInstructionGenerator = AiState
   { creepContexts: M.update (\(ProcessContext oldContext) -> Just $ ProcessContext
-    { creepState: maybe oldContext.creepState id $ newState
+    { processState: maybe oldContext.processState id $ newState
     , creepInstructions: newInstructionGenerator $ oldContext.creepInstructions
     }) creepName state.creepContexts
   }
@@ -67,14 +67,14 @@ finishTransferEnergy instructions = case head instructions of
                                     Just (TransferEnergyTo _ _) -> tailOrEmptyList $ instructions
                                     _ -> instructions
 
-assignTasks :: (AiState -> String -> AiState) -> CreepState -> AiState -> AiState
-assignTasks taskAssigner targetedCreepState (AiState state) =
-  foldl taskAssigner (AiState state) (targetedCreeps targetedCreepState state.creepContexts)
+assignTasks :: (AiState -> String -> AiState) -> ProcessState -> AiState -> AiState
+assignTasks taskAssigner targetedProcessState (AiState state) =
+  foldl taskAssigner (AiState state) (targetedCreeps targetedProcessState state.creepContexts)
 
-targetedCreeps :: CreepState -> M.StrMap ProcessContext -> Array String
-targetedCreeps targetedCreepState creepContexts = filter (maybe false (isCreepTargeted <<< getCreepState) <<< lookupProcessContext) $ M.keys creepContexts where
+targetedCreeps :: ProcessState -> M.StrMap ProcessContext -> Array String
+targetedCreeps targetedProcessState creepContexts = filter (maybe false (isCreepTargeted <<< getProcessState) <<< lookupProcessContext) $ M.keys creepContexts where
 
   creepNames = M.keys creepContexts
-  isCreepTargeted = ((==) targetedCreepState)
-  getCreepState (ProcessContext context) = context.creepState
+  isCreepTargeted = ((==) targetedProcessState)
+  getProcessState (ProcessContext context) = context.processState
   lookupProcessContext = (flip M.lookup) creepContexts
