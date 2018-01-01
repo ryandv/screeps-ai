@@ -13,55 +13,54 @@ import Data.Traversable (foldl)
 import Types (AiState(..), ProcessContext(..), ProcessState(..), Instruction(..), Observation(..), Point)
 
 generateInstructions :: M.StrMap (Array Observation) -> AiState -> AiState
-generateInstructions observations oldState = M.fold respondToObservations oldState observations
+generateInstructions observations oldState = AiState $ { creepContexts: M.fold respondToObservations ((unwrap oldState).creepContexts) observations }
 
-respondToObservations :: AiState -> String -> (Array Observation) -> AiState
-respondToObservations oldState creepName observations = foldl (respondToObservation creepName) oldState observations
+respondToObservations :: (M.StrMap ProcessContext) -> String -> (Array Observation) -> (M.StrMap ProcessContext)
+respondToObservations oldContexts creepName observations = foldl (respondToObservation creepName) oldContexts observations
 
-respondToObservation :: String -> AiState -> Observation -> AiState
+respondToObservation :: String -> (M.StrMap ProcessContext) -> Observation -> (M.StrMap ProcessContext)
 respondToObservation creepName state CannotSpawnCreep = state
 
-respondToObservation creepName (AiState oldState) UnderCreepCap = AiState
-  { creepContexts: M.alter (const <<< Just $ ProcessContext
+respondToObservation creepName oldContexts UnderCreepCap =
+  M.alter (const <<< Just $ ProcessContext
     { processState: Error
     , processInstructions: [ SpawnCreep ]
-    }) "Spawn1" oldState.creepContexts
-  }
+    }
+    ) "Spawn1" oldContexts
 
-respondToObservation creepName state Arrived = updateContext state creepName Nothing tailOrEmptyList
-respondToObservation creepName state CreepFull = updateContext state creepName (Just Transferring) finishHarvest
-respondToObservation creepName (AiState state) CreepEmpty = AiState $
-  { creepContexts: M.update (\(ProcessContext oldContext) -> case (head (oldContext.processInstructions)) of
-                                                                  Just (TransferEnergyTo _ _) -> Just $ ProcessContext
-                                                                    { processState: Idle
-                                                                    , processInstructions: tailOrEmptyList oldContext.processInstructions
-                                                                    }
-                                                                  _ -> Just $ ProcessContext oldContext
-                                                                    ) creepName state.creepContexts
-  }
+respondToObservation creepName contexts Arrived = updateContext contexts creepName Nothing tailOrEmptyList
+respondToObservation creepName contexts CreepFull = updateContext contexts creepName (Just Transferring) finishHarvest
+respondToObservation creepName oldContexts CreepEmpty =
+  M.update (\(ProcessContext oldContext) ->
+    case (head (oldContext.processInstructions)) of
+      Just (TransferEnergyTo _ _) -> Just $ ProcessContext
+        { processState: Idle
+        , processInstructions: tailOrEmptyList oldContext.processInstructions
+        }
+      _ -> Just $ ProcessContext oldContext
+    ) creepName oldContexts
 
-respondToObservation creepName state (SourceLocated point) = respondToSourceLocated creepName state point
-respondToObservation creepName state (ControllerIsLow controllerLocation) = respondToControllerIsLow creepName state controllerLocation
+respondToObservation creepName contexts (SourceLocated point) = respondToSourceLocated creepName contexts point
+respondToObservation creepName contexts (ControllerIsLow controllerLocation) = respondToControllerIsLow creepName contexts controllerLocation
 
-respondToControllerIsLow :: String -> AiState -> Point -> AiState
-respondToControllerIsLow creepName aistate controllerLocation = assignTasks instructCreepToTransferToController Transferring creepName aistate where
+respondToControllerIsLow :: String -> (M.StrMap ProcessContext) -> Point -> (M.StrMap ProcessContext)
+respondToControllerIsLow creepName contexts controllerLocation = assignTasks instructCreepToTransferToController Transferring creepName contexts where
 
-  instructCreepToTransferToController :: AiState -> String -> AiState
-  instructCreepToTransferToController oldState creepName = updateContext oldState creepName (Just Error) (const $ [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation])
+  instructCreepToTransferToController :: (M.StrMap ProcessContext) -> String -> (M.StrMap ProcessContext)
+  instructCreepToTransferToController oldContexts creepName = updateContext oldContexts creepName (Just Error) (const $ [MoveTo creepName controllerLocation, TransferEnergyTo creepName controllerLocation])
 
-respondToSourceLocated :: String -> AiState -> Point -> AiState
-respondToSourceLocated creepName aistate point = assignTasks instructCreepToHarvestSource Idle creepName aistate where
+respondToSourceLocated :: String -> (M.StrMap ProcessContext) -> Point -> (M.StrMap ProcessContext)
+respondToSourceLocated creepName contexts point = assignTasks instructCreepToHarvestSource Idle creepName contexts where
 
-  instructCreepToHarvestSource :: AiState -> String -> AiState
-  instructCreepToHarvestSource oldState creepName = updateContext oldState creepName (Just Harvesting) (const $ [MoveTo creepName point, HarvestSource creepName point])
+  instructCreepToHarvestSource :: (M.StrMap ProcessContext) -> String -> (M.StrMap ProcessContext)
+  instructCreepToHarvestSource oldContexts creepName = updateContext oldContexts creepName (Just Harvesting) (const $ [MoveTo creepName point, HarvestSource creepName point])
 
-updateContext :: AiState -> String -> (Maybe ProcessState) -> (Array Instruction -> Array Instruction) -> AiState
-updateContext (AiState state) creepName newState newInstructionGenerator = AiState
-  { creepContexts: M.update (\(ProcessContext oldContext) -> Just $ ProcessContext
+updateContext :: (M.StrMap ProcessContext) -> String -> (Maybe ProcessState) -> (Array Instruction -> Array Instruction) -> (M.StrMap ProcessContext)
+updateContext oldContexts creepName newState newInstructionGenerator =
+  M.update (\(ProcessContext oldContext) -> Just $ ProcessContext
     { processState: maybe oldContext.processState id $ newState
     , processInstructions: newInstructionGenerator $ oldContext.processInstructions
-    }) creepName state.creepContexts
-  }
+    }) creepName oldContexts
 
 tailOrEmptyList :: forall a. Array a -> Array a
 tailOrEmptyList = maybe [] id <<< tail
@@ -76,6 +75,6 @@ finishTransferEnergy instructions = case head instructions of
                                     Just (TransferEnergyTo _ _) -> tailOrEmptyList $ instructions
                                     _ -> instructions
 
-assignTasks :: (AiState -> String -> AiState) -> ProcessState -> String -> AiState -> AiState
-assignTasks taskAssigner targetedProcessState creepName state | maybe false (\(ProcessContext processContext) -> processContext.processState == targetedProcessState) (M.lookup creepName (unwrap state).creepContexts) = taskAssigner state creepName
-                                                              | true = state
+assignTasks :: ((M.StrMap ProcessContext) -> String -> (M.StrMap ProcessContext)) -> ProcessState -> String -> (M.StrMap ProcessContext) -> (M.StrMap ProcessContext)
+assignTasks taskAssigner targetedProcessState creepName oldContexts | maybe false (\(ProcessContext processContext) -> processContext.processState == targetedProcessState) (M.lookup creepName oldContexts) = taskAssigner oldContexts creepName
+                                                                    | true = oldContexts
